@@ -18,59 +18,92 @@ const noteLabels = {
     function: "功能質性", volume: "分量感", intensity: "風味強度", techniques: "調理方式", avoid: "避免"
 };
 
-// --- 導航堆疊 (History Stack) ---
-// 預設基底是 'home'
+// 導航堆疊
 let navigationStack = [{ page: 'home', data: null }];
 
-// --- 初始化 (GitHub 自動載入) ---
+// --- 初始化 (GitHub 自動載入 - 增強除錯版) ---
 document.addEventListener('DOMContentLoaded', async () => {
     const emptyState = document.getElementById('emptyState');
-    
+    let errorLog = []; // 用來收集錯誤訊息
+
+    // 1. 載入食材
     try {
-        // 1. 載入食材清單
-        const ingListRes = await fetch('data/list.json');
-        const ingList = await ingListRes.json();
+        const listRes = await fetch('data/list.json');
+        if (!listRes.ok) throw new Error(`找不到 data/list.json (狀態碼: ${listRes.status})`);
         
-        // 2. 載入食材檔案
-        for (const name of ingList) {
-            const dataRes = await fetch(`data/ingredients/${name}.json`);
-            flavorDB[name] = await dataRes.json();
-        }
-
-        // 3. 載入食譜
-        try {
-            const recListRes = await fetch('data/recipes_list.json');
-            const recList = await recListRes.json();
-            for (const name of recList) {
-                const dataRes = await fetch(`data/recipes/${name}.json`);
-                onlineRecipes.push(await dataRes.json());
+        const ingList = await listRes.json();
+        
+        // 使用 Promise.allSettled：即使一個檔案失敗，其他檔案也會繼續載入
+        const tasks = ingList.map(async (name) => {
+            try {
+                // 注意：GitHub 嚴格區分大小寫，檔案名必須與 list.json 完全一致
+                const res = await fetch(`data/ingredients/${name}.json`);
+                if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                const data = await res.json();
+                flavorDB[name] = data;
+            } catch (err) {
+                console.warn(`讀取失敗: ${name}`, err);
+                errorLog.push(`❌ 找不到食材檔: ingredients/${name}.json`);
             }
-        } catch (err) { console.log("無食譜資料"); }
-
-        // UI 更新
-        emptyState.innerHTML = 'GitHub 資料庫同步完成，請輸入食材。';
-        renderCuisines();
-        renderOnlineRecipes();
+        });
+        await Promise.all(tasks);
 
     } catch (e) {
-        console.error(e);
-        // 這就是您看到的錯誤訊息，上傳到 GitHub 後會自動消失
-        emptyState.innerHTML = '偵測到離線或路徑錯誤。<br>若在本地開啟請忽略，上傳 GitHub 後即可正常運作。';
+        errorLog.push(`❌ 嚴重錯誤: 無法讀取食材清單 list.json (${e.message})`);
     }
+
+    // 2. 載入食譜 (非必要，失敗不影響主程式)
+    try {
+        const recListRes = await fetch('data/recipes_list.json');
+        if (recListRes.ok) {
+            const recList = await recListRes.json();
+            const recTasks = recList.map(async (name) => {
+                try {
+                    const res = await fetch(`data/recipes/${name}.json`);
+                    if (res.ok) onlineRecipes.push(await res.json());
+                } catch (err) { console.warn("食譜讀取失敗", name); }
+            });
+            await Promise.all(recTasks);
+        }
+    } catch (e) { console.log("無食譜清單，跳過"); }
+
+    // 3. 更新畫面與回報狀態
+    if (Object.keys(flavorDB).length > 0) {
+        emptyState.innerHTML = '資料庫同步完成，請輸入食材。';
+        // 如果有部分檔案遺失，顯示黃色警告
+        if (errorLog.length > 0) {
+            emptyState.innerHTML += `<br><br><div style="color:#d9534f; text-align:left; font-size:14px; background:#fff0f0; padding:10px; border-radius:5px;">
+                <strong>部分檔案讀取失敗：</strong><br>${errorLog.join('<br>')}
+                <br><small>(請檢查 GitHub 上的檔名大小寫是否與 list.json 完全一致)</small>
+            </div>`;
+        }
+    } else {
+        // 如果完全沒有資料，顯示紅色錯誤
+        emptyState.innerHTML = `<div style="color:red; font-weight:bold;">無法讀取任何資料</div>
+        <div style="text-align:left; margin-top:10px; font-size:14px;">
+            可能原因：<br>
+            1. data 資料夾未上傳成功<br>
+            2. list.json 格式錯誤 (檢查是否有多餘逗號)<br>
+            3. 檔名大小寫不符<br><br>
+            <strong>詳細錯誤：</strong><br>${errorLog.join('<br>')}
+        </div>`;
+    }
+
+    renderCuisines();
+    renderOnlineRecipes();
 });
 
 // --- 核心功能函數 ---
 
-// 1. 搜尋觸發 (邏輯修改：搜尋視為新的開始)
 function triggerSearch() {
     const query = document.getElementById('searchInput').value.trim();
     if (!query) return;
 
-    // ★ 關鍵修改：搜尋時，清空歷史紀錄，只保留首頁
+    // 搜尋時清空歷史堆疊
     navigationStack = [{ page: 'home', data: null }];
 
     if (flavorDB[query]) {
-        showIngredient(query, true); // true = 加入堆疊
+        showIngredient(query, true);
     } else {
         // 嘗試英文搜尋
         let found = false;
@@ -85,9 +118,7 @@ function triggerSearch() {
     }
 }
 
-// 2. 顯示食材 (點擊觸發)
 function showIngredient(name, push = true) {
-    // 切換 UI
     document.querySelectorAll('.page-section').forEach(el => el.classList.remove('active'));
     document.getElementById('page-search').classList.add('active');
     
@@ -100,9 +131,7 @@ function showIngredient(name, push = true) {
     resultDiv.style.display = 'block';
 
     if (data) {
-        // 有資料
         document.getElementById('ingredientTitle').innerHTML = name + (data.enName ? ` <small style="color:#888;">${data.enName}</small>` : '');
-        
         const notes = document.getElementById('notesContainer');
         notes.innerHTML = '';
         for (const [k, label] of Object.entries(noteLabels)) {
@@ -110,80 +139,50 @@ function showIngredient(name, push = true) {
                 notes.innerHTML += `<div class="note-item"><span class="note-label">${label}</span>${data.meta[k]}</div>`;
             }
         }
-        
         document.getElementById('pairingHeader').style.display = 'block';
         const list = document.getElementById('pairingList');
         list.innerHTML = '';
-        
         if (data.pairings) {
             data.pairings.forEach(item => {
                 const li = document.createElement('li');
                 li.textContent = item.name;
                 li.className = `weight-${item.weight}`;
-                // ★ 關鍵：點擊推薦時，push = true (預設)，這樣會疊加歷史紀錄
                 li.onclick = () => showIngredient(item.name);
                 list.appendChild(li);
             });
         }
     } else {
-        // 無資料
         document.getElementById('ingredientTitle').innerText = name;
         document.getElementById('notesContainer').innerHTML = '<div style="color:#999; padding:20px 0;"><i>資料庫尚未建立此項目。</i></div>';
         document.getElementById('pairingHeader').style.display = 'none';
         document.getElementById('pairingList').innerHTML = '';
     }
 
-    // 加入歷史紀錄
-    if (push) {
-        navigationStack.push({ page: 'ingredient', data: name });
-    }
+    if (push) navigationStack.push({ page: 'ingredient', data: name });
 }
 
-// 3. 上一頁邏輯 (修正版)
 function goBack() {
-    // 如果堆疊裡有超過 1 頁 (例如：Home -> Apple)
     if (navigationStack.length > 1) {
-        // 1. 移除當前頁 (Apple)
         navigationStack.pop(); 
-        
-        // 2. 偷看上一頁是什麼
         const prev = navigationStack[navigationStack.length - 1]; 
-
-        // 3. 如果上一頁是 Home，代表要「完全清空」
-        if (prev.page === 'home') {
-            resetApp();
-        } else if (prev.page === 'ingredient') {
-            // 如果上一頁是食材，就顯示它 (push=false 代表不要再重複加入歷史)
-            showIngredient(prev.data, false);
-        } else {
-            // 其他頁面 (食譜、國家)
-            switchPage(prev.page, false); // false = 不 push
-        }
+        if (prev.page === 'home') resetApp();
+        else if (prev.page === 'ingredient') showIngredient(prev.data, false);
+        else switchPage(prev.page, false);
     } else {
-        // 如果已經到底了，就重置
         resetApp();
     }
 }
 
-// 4. 重置 App (回到乾淨首頁)
 function resetApp() {
-    // 重置堆疊
     navigationStack = [{ page: 'home', data: null }];
-    
-    // UI 重置
     document.querySelectorAll('.page-section').forEach(el => el.classList.remove('active'));
     document.getElementById('page-search').classList.add('active');
-    
-    document.getElementById('searchInput').value = ''; // 清空搜尋框
-    document.getElementById('ingredientResult').style.display = 'none'; // 隱藏結果
-    document.getElementById('emptyState').style.display = 'block'; // 顯示提示文字
-    
-    // 關閉側邊欄
+    document.getElementById('searchInput').value = ''; 
+    document.getElementById('ingredientResult').style.display = 'none'; 
+    document.getElementById('emptyState').style.display = 'block'; 
     document.getElementById('sidebar').classList.remove('active');
     document.querySelector('.sidebar-overlay').classList.remove('active');
 }
-
-// --- 其他 UI 函數 ---
 
 function renderOnlineRecipes() {
     const container = document.getElementById('recipeListContainer');
@@ -212,21 +211,14 @@ function toggleMenu() {
 }
 
 function switchPage(p, push = true) { 
-    // 關閉選單
     document.getElementById('sidebar').classList.remove('active');
     document.querySelector('.sidebar-overlay').classList.remove('active');
-
     document.querySelectorAll('.page-section').forEach(el => el.classList.remove('active')); 
     document.getElementById(`page-${p}`).classList.add('active'); 
-    
-    if (push) {
-        navigationStack.push({page: p, data: null}); 
-    }
+    if (push) navigationStack.push({page: p, data: null}); 
 }
 
-function handleEnter(e) { 
-    if(e.key === 'Enter') triggerSearch(); 
-}
+function handleEnter(e) { if(e.key === 'Enter') triggerSearch(); }
 
 function renderCuisines() { 
     const grid = document.getElementById('cuisineGrid'); 
@@ -236,7 +228,6 @@ function renderCuisines() {
         div.className = 'cuisine-card'; 
         div.innerText = c.name; 
         div.onclick = () => { 
-            // 點國家 -> 視為搜尋該國家 (堆疊重置)
             navigationStack = [{ page: 'home', data: null }];
             showIngredient(c.name, true); 
         }; 
