@@ -1,0 +1,9 @@
+{
+  "name": "蘋果",
+  "enName": "Apple",
+  "meta": {"season": "秋冬","taste": "甜酸"},
+  "pairings": [
+    {"name": "肉桂","weight": 3},
+    {"name": "豬肉","weight": 2}
+  ]
+}
