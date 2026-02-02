@@ -2,7 +2,7 @@
 let flavorDB = {};
 let onlineRecipes = [];
 
-// 國家/菜系資料庫
+// 國家/菜系資料庫 (靜態)
 const cuisineDB = [
     { name: "義大利料理", keyIngredients: ["番茄", "羅勒", "大蒜", "橄欖油"] },
     { name: "法國料理", keyIngredients: ["奶油", "紅蔥頭", "百里香", "紅酒"] },
@@ -11,32 +11,33 @@ const cuisineDB = [
     { name: "台灣料理", keyIngredients: ["醬油", "米酒", "麻油", "九層塔 (羅勒)"] }
 ];
 
-// 筆記標籤對照表
+// 筆記標籤
 const noteLabels = { 
     season: "季節", taste: "味道", tips: "小秘訣", 
     affinities: "對味組合", notes: "筆記", 
     function: "功能質性", volume: "分量感", intensity: "風味強度", techniques: "調理方式", avoid: "避免"
 };
 
-// 導航堆疊
-let navigationStack = [{ page: 'search', data: null }];
+// --- 導航堆疊 (History Stack) ---
+// 預設基底是 'home'
+let navigationStack = [{ page: 'home', data: null }];
 
-// --- 初始化 (GitHub 自動載入邏輯) ---
+// --- 初始化 (GitHub 自動載入) ---
 document.addEventListener('DOMContentLoaded', async () => {
     const emptyState = document.getElementById('emptyState');
     
     try {
-        // 1. 載入食材清單 (list.json)
+        // 1. 載入食材清單
         const ingListRes = await fetch('data/list.json');
         const ingList = await ingListRes.json();
         
-        // 2. 逐一載入食材詳細檔
+        // 2. 載入食材檔案
         for (const name of ingList) {
             const dataRes = await fetch(`data/ingredients/${name}.json`);
             flavorDB[name] = await dataRes.json();
         }
 
-        // 3. 載入食譜清單與檔案
+        // 3. 載入食譜
         try {
             const recListRes = await fetch('data/recipes_list.json');
             const recList = await recListRes.json();
@@ -44,42 +45,49 @@ document.addEventListener('DOMContentLoaded', async () => {
                 const dataRes = await fetch(`data/recipes/${name}.json`);
                 onlineRecipes.push(await dataRes.json());
             }
-        } catch (err) {
-            console.log("尚未建立食譜資料或路徑錯誤", err);
-        }
+        } catch (err) { console.log("無食譜資料"); }
 
-        // 更新 UI
+        // UI 更新
         emptyState.innerHTML = 'GitHub 資料庫同步完成，請輸入食材。';
         renderCuisines();
         renderOnlineRecipes();
 
     } catch (e) {
         console.error(e);
-        emptyState.innerHTML = '偵測到離線或路徑錯誤，請確認 GitHub data 結構。<br>(需使用 Live Server 或 GitHub Pages)';
+        // 這就是您看到的錯誤訊息，上傳到 GitHub 後會自動消失
+        emptyState.innerHTML = '偵測到離線或路徑錯誤。<br>若在本地開啟請忽略，上傳 GitHub 後即可正常運作。';
     }
 });
 
-// --- 功能函數 ---
+// --- 核心功能函數 ---
 
+// 1. 搜尋觸發 (邏輯修改：搜尋視為新的開始)
 function triggerSearch() {
     const query = document.getElementById('searchInput').value.trim();
+    if (!query) return;
+
+    // ★ 關鍵修改：搜尋時，清空歷史紀錄，只保留首頁
+    navigationStack = [{ page: 'home', data: null }];
+
     if (flavorDB[query]) {
-        showIngredient(query);
+        showIngredient(query, true); // true = 加入堆疊
     } else {
         // 嘗試英文搜尋
+        let found = false;
         for (const [key, val] of Object.entries(flavorDB)) {
             if (val.enName && val.enName.toLowerCase() === query.toLowerCase()) {
-                showIngredient(key);
-                return;
+                showIngredient(key, true);
+                found = true;
+                break;
             }
         }
-        // 若都找不到，顯示未建立頁面
-        showIngredient(query); 
+        if (!found) showIngredient(query, true); 
     }
 }
 
+// 2. 顯示食材 (點擊觸發)
 function showIngredient(name, push = true) {
-    // UI 切換
+    // 切換 UI
     document.querySelectorAll('.page-section').forEach(el => el.classList.remove('active'));
     document.getElementById('page-search').classList.add('active');
     
@@ -92,7 +100,7 @@ function showIngredient(name, push = true) {
     resultDiv.style.display = 'block';
 
     if (data) {
-        // 資料已建立
+        // 有資料
         document.getElementById('ingredientTitle').innerHTML = name + (data.enName ? ` <small style="color:#888;">${data.enName}</small>` : '');
         
         const notes = document.getElementById('notesContainer');
@@ -107,26 +115,75 @@ function showIngredient(name, push = true) {
         const list = document.getElementById('pairingList');
         list.innerHTML = '';
         
-        // 確保 pairings 存在再跑迴圈
         if (data.pairings) {
             data.pairings.forEach(item => {
                 const li = document.createElement('li');
                 li.textContent = item.name;
                 li.className = `weight-${item.weight}`;
+                // ★ 關鍵：點擊推薦時，push = true (預設)，這樣會疊加歷史紀錄
                 li.onclick = () => showIngredient(item.name);
                 list.appendChild(li);
             });
         }
     } else {
-        // 資料未建立
+        // 無資料
         document.getElementById('ingredientTitle').innerText = name;
-        document.getElementById('notesContainer').innerHTML = '<div style="color:#999; padding:20px 0;"><i>資料庫尚未建立此項目。<br>請確認 GitHub data/ingredients/ 中是否有此檔案。</i></div>';
+        document.getElementById('notesContainer').innerHTML = '<div style="color:#999; padding:20px 0;"><i>資料庫尚未建立此項目。</i></div>';
         document.getElementById('pairingHeader').style.display = 'none';
         document.getElementById('pairingList').innerHTML = '';
     }
 
-    if (push) navigationStack.push({ page: 'ingredient', data: name });
+    // 加入歷史紀錄
+    if (push) {
+        navigationStack.push({ page: 'ingredient', data: name });
+    }
 }
+
+// 3. 上一頁邏輯 (修正版)
+function goBack() {
+    // 如果堆疊裡有超過 1 頁 (例如：Home -> Apple)
+    if (navigationStack.length > 1) {
+        // 1. 移除當前頁 (Apple)
+        navigationStack.pop(); 
+        
+        // 2. 偷看上一頁是什麼
+        const prev = navigationStack[navigationStack.length - 1]; 
+
+        // 3. 如果上一頁是 Home，代表要「完全清空」
+        if (prev.page === 'home') {
+            resetApp();
+        } else if (prev.page === 'ingredient') {
+            // 如果上一頁是食材，就顯示它 (push=false 代表不要再重複加入歷史)
+            showIngredient(prev.data, false);
+        } else {
+            // 其他頁面 (食譜、國家)
+            switchPage(prev.page, false); // false = 不 push
+        }
+    } else {
+        // 如果已經到底了，就重置
+        resetApp();
+    }
+}
+
+// 4. 重置 App (回到乾淨首頁)
+function resetApp() {
+    // 重置堆疊
+    navigationStack = [{ page: 'home', data: null }];
+    
+    // UI 重置
+    document.querySelectorAll('.page-section').forEach(el => el.classList.remove('active'));
+    document.getElementById('page-search').classList.add('active');
+    
+    document.getElementById('searchInput').value = ''; // 清空搜尋框
+    document.getElementById('ingredientResult').style.display = 'none'; // 隱藏結果
+    document.getElementById('emptyState').style.display = 'block'; // 顯示提示文字
+    
+    // 關閉側邊欄
+    document.getElementById('sidebar').classList.remove('active');
+    document.querySelector('.sidebar-overlay').classList.remove('active');
+}
+
+// --- 其他 UI 函數 ---
 
 function renderOnlineRecipes() {
     const container = document.getElementById('recipeListContainer');
@@ -149,49 +206,39 @@ function renderOnlineRecipes() {
     });
 }
 
-// --- 基礎導航與 UI ---
-
 function toggleMenu() { 
     document.getElementById('sidebar').classList.toggle('active'); 
     document.querySelector('.sidebar-overlay').classList.toggle('active'); 
 }
 
-function switchPage(p) { 
-    toggleMenu(); 
+function switchPage(p, push = true) { 
+    // 關閉選單
+    document.getElementById('sidebar').classList.remove('active');
+    document.querySelector('.sidebar-overlay').classList.remove('active');
+
     document.querySelectorAll('.page-section').forEach(el => el.classList.remove('active')); 
     document.getElementById(`page-${p}`).classList.add('active'); 
-    navigationStack.push({page:p, data:null}); 
-}
-
-function resetApp() { 
-    location.reload(); 
+    
+    if (push) {
+        navigationStack.push({page: p, data: null}); 
+    }
 }
 
 function handleEnter(e) { 
     if(e.key === 'Enter') triggerSearch(); 
 }
 
-function goBack() { 
-    if(navigationStack.length > 1) { 
-        navigationStack.pop(); 
-        const p = navigationStack[navigationStack.length-1]; 
-        if(p.page === 'ingredient') showIngredient(p.data, false); 
-        else switchPage(p.page); 
-        navigationStack.pop(); // 避免重複 push
-    } 
-}
-
 function renderCuisines() { 
     const grid = document.getElementById('cuisineGrid'); 
-    grid.innerHTML = ''; // 清空避免重複渲染
+    grid.innerHTML = ''; 
     cuisineDB.forEach(c => { 
         const div = document.createElement('div'); 
         div.className = 'cuisine-card'; 
         div.innerText = c.name; 
         div.onclick = () => { 
-            // 這裡簡單處理：直接搜尋該菜系名稱，或顯示該菜系食材列表
-            // 您可以根據需求修改為顯示該菜系的詳細食材清單
-            showIngredient(c.name); 
+            // 點國家 -> 視為搜尋該國家 (堆疊重置)
+            navigationStack = [{ page: 'home', data: null }];
+            showIngredient(c.name, true); 
         }; 
         grid.appendChild(div); 
     }); 
