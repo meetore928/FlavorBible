@@ -1,17 +1,9 @@
 // --- 核心資料 ---
-let flavorDB = {};
+let flavorDB = {};     // 總資料庫 (包含食材與國家)
+let cuisineList = [];  // 專門存放國家的清單 (用於顯示在"世界風味"頁面)
 let onlineRecipes = [];
 
-// 國家/菜系資料庫 (靜態)
-const cuisineDB = [
-    { name: "義大利料理", keyIngredients: ["番茄", "羅勒", "大蒜", "橄欖油"] },
-    { name: "法國料理", keyIngredients: ["奶油", "紅蔥頭", "百里香", "紅酒"] },
-    { name: "泰國料理", keyIngredients: ["檸檬草", "魚露", "椰奶", "青檸"] },
-    { name: "日本料理", keyIngredients: ["醬油", "味醂", "柴魚片", "味噌"] },
-    { name: "台灣料理", keyIngredients: ["醬油", "米酒", "麻油", "九層塔 (羅勒)"] }
-];
-
-// 筆記標籤
+// 筆記標籤對照
 const noteLabels = { 
     season: "季節", taste: "味道", tips: "小秘訣", 
     affinities: "對味組合", notes: "筆記", 
@@ -21,38 +13,38 @@ const noteLabels = {
 // 導航堆疊
 let navigationStack = [{ page: 'home', data: null }];
 
-// --- 初始化 (GitHub 自動載入 - 增強除錯版) ---
+// --- 初始化 (GitHub 自動載入) ---
 document.addEventListener('DOMContentLoaded', async () => {
     const emptyState = document.getElementById('emptyState');
-    let errorLog = []; // 用來收集錯誤訊息
+    let errorLog = []; 
 
-    // 1. 載入食材
+    // 1. 載入一般食材清單 (list.json)
     try {
         const listRes = await fetch('data/list.json');
-        if (!listRes.ok) throw new Error(`找不到 data/list.json (狀態碼: ${listRes.status})`);
-        
+        if (!listRes.ok) throw new Error(`找不到 data/list.json`);
         const ingList = await listRes.json();
         
-        // 使用 Promise.allSettled：即使一個檔案失敗，其他檔案也會繼續載入
-        const tasks = ingList.map(async (name) => {
-            try {
-                // 注意：GitHub 嚴格區分大小寫，檔案名必須與 list.json 完全一致
-                const res = await fetch(`data/ingredients/${name}.json`);
-                if (!res.ok) throw new Error(`HTTP ${res.status}`);
-                const data = await res.json();
-                flavorDB[name] = data;
-            } catch (err) {
-                console.warn(`讀取失敗: ${name}`, err);
-                errorLog.push(`❌ 找不到食材檔: ingredients/${name}.json`);
-            }
-        });
-        await Promise.all(tasks);
-
+        await loadBatchIngredients(ingList, errorLog);
     } catch (e) {
-        errorLog.push(`❌ 嚴重錯誤: 無法讀取食材清單 list.json (${e.message})`);
+        errorLog.push(`❌ 無法讀取 list.json: ${e.message}`);
     }
 
-    // 2. 載入食譜 (非必要，失敗不影響主程式)
+    // 2. 載入國家/菜系清單 (cuisines_list.json) - 新增功能
+    try {
+        const cuisineRes = await fetch('data/cuisines_list.json');
+        if (cuisineRes.ok) {
+            const cListNames = await cuisineRes.json();
+            // 載入這些國家的 JSON 檔
+            await loadBatchIngredients(cListNames, errorLog);
+            
+            // 將載入完成的國家資料存入 cuisineList 供渲染使用
+            cuisineList = cListNames.filter(name => flavorDB[name]).map(name => flavorDB[name]);
+        }
+    } catch (e) {
+        console.warn("沒有發現獨立的 cuisines_list.json，跳過國家載入", e);
+    }
+
+    // 3. 載入食譜 (非必要)
     try {
         const recListRes = await fetch('data/recipes_list.json');
         if (recListRes.ok) {
@@ -61,51 +53,58 @@ document.addEventListener('DOMContentLoaded', async () => {
                 try {
                     const res = await fetch(`data/recipes/${name}.json`);
                     if (res.ok) onlineRecipes.push(await res.json());
-                } catch (err) { console.warn("食譜讀取失敗", name); }
+                } catch (err) { }
             });
             await Promise.all(recTasks);
         }
-    } catch (e) { console.log("無食譜清單，跳過"); }
+    } catch (e) { console.log("無食譜清單"); }
 
-    // 3. 更新畫面與回報狀態
+    // 4. 更新畫面狀態
     if (Object.keys(flavorDB).length > 0) {
         emptyState.innerHTML = '資料庫同步完成，請輸入食材。';
-        // 如果有部分檔案遺失，顯示黃色警告
         if (errorLog.length > 0) {
-            emptyState.innerHTML += `<br><br><div style="color:#d9534f; text-align:left; font-size:14px; background:#fff0f0; padding:10px; border-radius:5px;">
-                <strong>部分檔案讀取失敗：</strong><br>${errorLog.join('<br>')}
-                <br><small>(請檢查 GitHub 上的檔名大小寫是否與 list.json 完全一致)</small>
-            </div>`;
+            emptyState.innerHTML += `<br><br><div style="color:#d9534f;text-align:left;background:#fff0f0;padding:10px;">部分檔案讀取失敗：<br>${errorLog.join('<br>')}</div>`;
         }
     } else {
-        // 如果完全沒有資料，顯示紅色錯誤
-        emptyState.innerHTML = `<div style="color:red; font-weight:bold;">無法讀取任何資料</div>
-        <div style="text-align:left; margin-top:10px; font-size:14px;">
-            可能原因：<br>
-            1. data 資料夾未上傳成功<br>
-            2. list.json 格式錯誤 (檢查是否有多餘逗號)<br>
-            3. 檔名大小寫不符<br><br>
-            <strong>詳細錯誤：</strong><br>${errorLog.join('<br>')}
-        </div>`;
+        emptyState.innerHTML = `<div style="color:red;font-weight:bold;">無法讀取資料</div>`;
     }
 
-    renderCuisines();
-    renderOnlineRecipes();
+    renderCuisines();      // 渲染國家頁面
+    renderOnlineRecipes(); // 渲染食譜頁面
 });
+
+// 通用載入函數：傳入名稱陣列，將檔案載入 flavorDB
+async function loadBatchIngredients(names, errorLog) {
+    const tasks = names.map(async (name) => {
+        // 如果已經載入過，就不重複載入 (避免 list.json 和 cuisines_list.json 重複)
+        if (flavorDB[name]) return;
+
+        try {
+            const res = await fetch(`data/ingredients/${name}.json`);
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            const data = await res.json();
+            flavorDB[name] = data; // 存入總資料庫
+        } catch (err) {
+            console.warn(`讀取失敗: ${name}`, err);
+            errorLog.push(`❌ 找不到: ingredients/${name}.json`);
+        }
+    });
+    await Promise.all(tasks);
+}
+
 
 // --- 核心功能函數 ---
 
 function triggerSearch() {
     const query = document.getElementById('searchInput').value.trim();
     if (!query) return;
-
-    // 搜尋時清空歷史堆疊
     navigationStack = [{ page: 'home', data: null }];
-
+    
+    // 優先搜尋精確匹配
     if (flavorDB[query]) {
         showIngredient(query, true);
     } else {
-        // 嘗試英文搜尋
+        // 英文搜尋
         let found = false;
         for (const [key, val] of Object.entries(flavorDB)) {
             if (val.enName && val.enName.toLowerCase() === query.toLowerCase()) {
@@ -134,11 +133,15 @@ function showIngredient(name, push = true) {
         document.getElementById('ingredientTitle').innerHTML = name + (data.enName ? ` <small style="color:#888;">${data.enName}</small>` : '');
         const notes = document.getElementById('notesContainer');
         notes.innerHTML = '';
+        
+        // 顯示 Meta 資訊
         for (const [k, label] of Object.entries(noteLabels)) {
             if (data.meta && data.meta[k]) {
                 notes.innerHTML += `<div class="note-item"><span class="note-label">${label}</span>${data.meta[k]}</div>`;
             }
         }
+
+        // 顯示搭配列表
         document.getElementById('pairingHeader').style.display = 'block';
         const list = document.getElementById('pairingList');
         list.innerHTML = '';
@@ -152,6 +155,7 @@ function showIngredient(name, push = true) {
             });
         }
     } else {
+        // 查無資料
         document.getElementById('ingredientTitle').innerText = name;
         document.getElementById('notesContainer').innerHTML = '<div style="color:#999; padding:20px 0;"><i>資料庫尚未建立此項目。</i></div>';
         document.getElementById('pairingHeader').style.display = 'none';
@@ -220,13 +224,35 @@ function switchPage(p, push = true) {
 
 function handleEnter(e) { if(e.key === 'Enter') triggerSearch(); }
 
+// --- 渲染國家/菜系 (新版) ---
 function renderCuisines() { 
     const grid = document.getElementById('cuisineGrid'); 
     grid.innerHTML = ''; 
-    cuisineDB.forEach(c => { 
+
+    if (cuisineList.length === 0) {
+        grid.innerHTML = '<div style="grid-column: 1/-1; text-align:center; color:#999;">尚未設定國家清單 (data/cuisines_list.json)</div>';
+        return;
+    }
+
+    cuisineList.forEach(c => { 
         const div = document.createElement('div'); 
         div.className = 'cuisine-card'; 
-        div.innerText = c.name; 
+        
+        // 嘗試從 pairings 裡抓出前 4 個權重高的食材當作簡介
+        let topIngredients = '';
+        if (c.pairings && c.pairings.length > 0) {
+            // 排序：權重高的在前 -> 取前4個 -> 轉成字串
+            const picks = c.pairings
+                .sort((a,b) => b.weight - a.weight)
+                .slice(0, 4)
+                .map(p => p.name)
+                .join('、');
+            topIngredients = `<div style="font-size:12px; font-weight:normal; color:#666; margin-top:5px;">${picks}...</div>`;
+        }
+
+        div.innerHTML = `<div>${c.name}</div>${topIngredients}`;
+        
+        // 點擊後直接跳轉到該國家的詳細頁面 (像食材一樣顯示)
         div.onclick = () => { 
             navigationStack = [{ page: 'home', data: null }];
             showIngredient(c.name, true); 

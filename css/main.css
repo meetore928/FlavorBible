@@ -179,10 +179,14 @@ body {
 .cuisine-card {
     background: white;
     border: 1px solid #ddd;
-    padding: 20px;
+    padding: 15px; /* 稍微縮小 padding 讓內容更緊湊 */
     text-align: center;
     font-weight: 900;
     cursor: pointer;
+    display: flex;       /* 新增：使用 Flex 佈局 */
+    flex-direction: column; /* 新增：垂直排列 */
+    justify-content: center; /* 新增：垂直置中 */
+    min-height: 80px;    /* 新增：設定最小高度 */
 }
 .cuisine-card:hover { transform: translateY(-3px); border-color: var(--title-color); color: var(--title-color); }
 
