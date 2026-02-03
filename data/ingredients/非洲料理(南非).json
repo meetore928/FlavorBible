@@ -1,0 +1,14 @@
+{
+  "name": "非洲料理(南非)",
+  "enName": "African Cuisine(South)",
+  "meta": {
+    "affinities": "羊肉+辣椒+蒜頭+洋蔥",
+  },
+  "pairings": [
+    { "name": "豆類", "weight": 1 }, { "name": "胡蘿蔔", "weight": 1 }, 
+    { "name": "辣椒", "weight": 1 }, { "name": "肉桂", "weight": 1 }, { "name": "丁香", "weight": 1 },
+    { "name": "葫蘆巴", "weight": 1 }, { "name": "蒜頭", "weight": 1 }, { "name": "薑", "weight": 1 },
+    { "name": "羊肉", "weight": 1 },{ "name": "洋蔥", "weight": 1 },{ "name": "碗豆", "weight": 1 },{ "name": "南瓜", "weight": 1 },
+    { "name": "燉煮料理", "weight": 1 },{ "name": "番茄", "weight": 1 },{ "name": "薑黃", "weight": 1 }
+  ]
+}

@@ -1,0 +1,15 @@
+{
+  "name": "非洲料理(北非)",
+  "enName": "African Cuisine(North)",
+  "meta": {
+    "affinities": "孜然+蒜頭+薄荷(尤以非洲東北為佳)",
+  },
+  "pairings": [
+    { "name": "燈籠椒", "weight": 1 }, { "name": "燜燒料理", "weight": 1 }, 
+    { "name": "雞肉", "weight": 1 }, { "name": "鷹嘴豆", "weight": 1 }, { "name": "庫斯庫斯", "weight": 1 },
+    { "name": "黃瓜", "weight": 1 }, { "name": "孜然", "weight": 1 }, { "name": "茄子", "weight": 1 },
+    { "name": "魚", "weight": 1 },{ "name": "蒜頭", "weight": 1 },{ "name": "羊肉", "weight": 1 },{ "name": "薄荷", "weight": 1 },
+    { "name": "歐芹", "weight": 1 },{ "name": "米", "weight": 1 },{ "name": "燉煮料理", "weight": 1 },
+    { "name": "番茄", "weight": 1 },{ "name": "小麥", "weight": 1 }
+  ]
+}
