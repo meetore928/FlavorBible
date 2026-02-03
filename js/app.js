@@ -30,7 +30,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     suggestionList.style.display = 'none';
     searchWrapper.parentNode.insertBefore(suggestionList, searchWrapper.nextSibling);
 
-    // 注入 CSS
+    // 注入 CSS (建議樣式)
     const style = document.createElement('style');
     style.innerHTML = `
         .suggestion-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 12px; margin-bottom: 30px; }
@@ -91,6 +91,12 @@ document.addEventListener('DOMContentLoaded', async () => {
     window.addEventListener('resize', () => {
         if(singleChart) singleChart.resize();
         if(bridgeChart) bridgeChart.resize();
+        
+        // 重新渲染以套用手機/電腦版不同的參數
+        if(singleChart && currentSingleData) {
+            renderSingleGraph(currentSingleData.name, currentSingleData.pairings);
+        }
+        if(bridgeChart) updateBridge();
     });
 });
 
@@ -106,7 +112,7 @@ async function loadBatchIngredients(names, errorLog) {
     await Promise.all(tasks);
 }
 
-// 輔助：確保取得食材資料 (包含尚未載入的)
+// 輔助：確保取得食材資料
 async function getIngredientData(name) {
     if (flavorDB[name]) return flavorDB[name];
     try {
@@ -160,7 +166,9 @@ function triggerSearch(forcedQuery = null) {
     }
 }
 
-// [修改] 顯示單一食材：同時渲染圖表 (方案B) 與 列表
+// 暫存目前顯示的資料，供 Resize 使用
+let currentSingleData = null;
+
 async function showIngredient(name, push = true) {
     document.querySelectorAll('.page-section').forEach(el => el.classList.remove('active'));
     document.getElementById('page-search').classList.add('active');
@@ -172,10 +180,11 @@ async function showIngredient(name, push = true) {
     
     document.getElementById('searchInput').value = name;
     
-    // 確保資料存在 (若點擊圖表節點，可能資料還沒 fetch)
     const data = await getIngredientData(name);
 
     if (data) {
+        currentSingleData = { name: name, pairings: data.pairings };
+
         // 1. 填寫標題與筆記
         document.getElementById('ingredientTitle').innerHTML = name + (data.enName ? ` <small style="color:#888;">${data.enName}</small>` : '');
         const notes = document.getElementById('notesContainer');
@@ -186,7 +195,7 @@ async function showIngredient(name, push = true) {
             }
         }
 
-        // 2. 填寫列表 (保留條列式)
+        // 2. 填寫列表
         const list = document.getElementById('pairingList');
         const header = document.getElementById('pairingHeader');
         list.innerHTML = '';
@@ -205,28 +214,28 @@ async function showIngredient(name, push = true) {
             header.style.display = 'none';
         }
 
-        // 3. [新增] 渲染關係圖 (Plan B)
+        // 3. 渲染關係圖
         renderSingleGraph(name, pairings);
 
     } else {
-        // 查無資料
+        currentSingleData = null;
         document.getElementById('ingredientTitle').innerText = name;
         document.getElementById('notesContainer').innerHTML = '<div style="color:#999; padding:20px 0;"><i>資料庫中尚未建立此項目。</i></div>';
         document.getElementById('pairingHeader').style.display = 'none';
         document.getElementById('pairingList').innerHTML = '';
-        document.getElementById('singleGraph').innerHTML = ''; // 清空圖表
+        document.getElementById('singleGraph').innerHTML = '';
     }
 
     if (push) navigationStack.push({ page: 'ingredient', data: name });
 }
 
-// [新增] 方案 B 的圖表繪製邏輯
 function renderSingleGraph(centerName, pairings) {
     const container = document.getElementById('singleGraph');
+    // 如果 dom 被隱藏，init 會報錯，先檢查 display
+    if(container.offsetWidth === 0) return;
+
     if (!singleChart) singleChart = echarts.init(container);
 
-    // 準備節點與連線
-    // 中心點
     let nodes = [{
         name: centerName,
         symbolSize: 40,
@@ -235,7 +244,6 @@ function renderSingleGraph(centerName, pairings) {
     }];
     let links = [];
 
-    // 周圍點 (取前 15 個權重最高的，避免圖太亂)
     const topPairings = pairings.sort((a,b) => b.weight - a.weight).slice(0, 15);
     
     topPairings.forEach(p => {
@@ -254,7 +262,6 @@ function renderSingleGraph(centerName, pairings) {
 
     renderChart(singleChart, nodes, links);
     
-    // 點擊事件：點擊圖上的圈圈也可跳轉
     singleChart.off('click');
     singleChart.on('click', function (params) {
         if (params.dataType === 'node' && params.name !== centerName) {
@@ -263,29 +270,23 @@ function renderSingleGraph(centerName, pairings) {
     });
 }
 
-// [新增] 方案 A：風味橋接邏輯
 async function updateBridge() {
     const valA = document.getElementById('bridgeInputA').value.trim();
     const valB = document.getElementById('bridgeInputB').value.trim();
     const resultText = document.getElementById('bridgeResultText');
     const container = document.getElementById('bridgeGraph');
     
+    // 檢查容器是否可見
+    if(container.offsetWidth === 0 && (!valA && !valB)) return;
+
     if (!bridgeChart) bridgeChart = echarts.init(container);
 
     let nodes = [];
     let links = [];
 
-    // 1. 處理 A
-    if (valA) {
-        nodes.push({ name: valA, x: 100, y: 300, fixed: false, symbolSize: 50, itemStyle: { color: '#8C9C5E' }, label: {show:true, fontSize:16, fontWeight:'bold'} });
-    }
+    if (valA) nodes.push({ name: valA, symbolSize: 50, itemStyle: { color: '#8C9C5E' }, label: {show:true, fontSize:16, fontWeight:'bold'} });
+    if (valB) nodes.push({ name: valB, symbolSize: 50, itemStyle: { color: '#3b6eac' }, label: {show:true, fontSize:16, fontWeight:'bold'} });
 
-    // 2. 處理 B
-    if (valB) {
-        nodes.push({ name: valB, x: 500, y: 300, fixed: false, symbolSize: 50, itemStyle: { color: '#3b6eac' }, label: {show:true, fontSize:16, fontWeight:'bold'} });
-    }
-
-    // 3. 處理交集 (當兩者都有輸入時)
     if (valA && valB) {
         const dataA = await getIngredientData(valA);
         const dataB = await getIngredientData(valB);
@@ -293,25 +294,15 @@ async function updateBridge() {
         if (dataA && dataB) {
             const listA = (dataA.pairings || []).map(p => p.name);
             const listB = (dataB.pairings || []).map(p => p.name);
-            
-            // 找出共同朋友
             const common = listA.filter(n => listB.includes(n));
             
             if (common.length === 0) {
                 resultText.innerHTML = `找不到 <b>${valA}</b> 與 <b>${valB}</b> 的共同搭配。`;
             } else {
                 resultText.innerHTML = `發現 ${common.length} 個共同連結！`;
-                
                 common.forEach(cName => {
-                    nodes.push({
-                        name: cName,
-                        symbolSize: 20,
-                        itemStyle: { color: '#eaddc5' }, // 米黃色
-                        label: { show: true, color: '#555' }
-                    });
-                    // 連接 A -> Common
+                    nodes.push({ name: cName, symbolSize: 20, itemStyle: { color: '#eaddc5' }, label: { show: true, color: '#555' } });
                     links.push({ source: valA, target: cName, lineStyle: { color: '#8C9C5E', opacity: 0.4 } });
-                    // 連接 B -> Common
                     links.push({ source: valB, target: cName, lineStyle: { color: '#3b6eac', opacity: 0.4 } });
                 });
             }
@@ -325,8 +316,27 @@ async function updateBridge() {
     renderChart(bridgeChart, nodes, links);
 }
 
-// [新增] 通用繪圖函式 (ECharts Force Layout)
+// [修改] 通用繪圖函式 (增加手機版判斷邏輯)
 function renderChart(chartInstance, nodes, links) {
+    // 1. 偵測是否為手機
+    const isMobile = window.innerWidth < 768;
+
+    // 2. 設定不同的參數
+    const sizeFactor = isMobile ? 0.6 : 1; 
+    const forceRepulsion = isMobile ? 150 : 300; 
+    const edgeLength = isMobile ? 40 : 80; 
+    const labelSize = isMobile ? 10 : 12; 
+
+    // 3. 調整節點數據 (動態縮放)
+    const adjustedNodes = nodes.map(node => ({
+        ...node,
+        symbolSize: (node.symbolSize || 20) * sizeFactor,
+        label: {
+            ...node.label,
+            fontSize: node.label?.fontSize ? Math.max(10, node.label.fontSize * sizeFactor) : labelSize
+        }
+    }));
+
     const option = {
         tooltip: {},
         animationDurationUpdate: 1500,
@@ -335,21 +345,25 @@ function renderChart(chartInstance, nodes, links) {
             type: 'graph',
             layout: 'force',
             force: {
-                repulsion: 300,     // 節點之間的排斥力
-                edgeLength: 80,      // 連線長度
+                repulsion: forceRepulsion,
+                edgeLength: edgeLength,
                 gravity: 0.1
             },
-            data: nodes,
+            data: adjustedNodes,
             links: links,
-            roam: true,             // 允許滑鼠拖拉縮放
-            label: { show: true, position: 'right' },
+            roam: true,
+            label: { 
+                show: true, 
+                position: 'right',
+                fontSize: labelSize 
+            },
             lineStyle: { curveness: 0.1 }
         }]
     };
     chartInstance.setOption(option);
 }
 
-// --- 導航與其他函式 (保持不變) ---
+// --- 導航與其他函式 ---
 
 function goBack() {
     if (navigationStack.length > 1) {
@@ -431,6 +445,9 @@ function switchPage(p, push = true) {
     document.querySelectorAll('.page-section').forEach(el => el.classList.remove('active')); 
     document.getElementById(`page-${p}`).classList.add('active'); 
     if (push) navigationStack.push({page: p, data: null}); 
+    
+    // 解決切換頁面時圖表可能沒渲染的問題
+    if(p === 'bridge') setTimeout(updateBridge, 100);
 }
 
 function handleEnter(e) { if(e.key === 'Enter') triggerSearch(); }
