@@ -2,7 +2,7 @@
   "name": "非洲料理(南非)",
   "enName": "African Cuisine(South)",
   "meta": {
-    "affinities": "羊肉+辣椒+蒜頭+洋蔥",
+    "affinities": "羊肉+辣椒+蒜頭+洋蔥"
   },
   "pairings": [
     { "name": "豆類", "weight": 1 }, { "name": "胡蘿蔔", "weight": 1 }, 

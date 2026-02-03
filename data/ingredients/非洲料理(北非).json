@@ -2,7 +2,7 @@
   "name": "非洲料理(北非)",
   "enName": "African Cuisine(North)",
   "meta": {
-    "affinities": "孜然+蒜頭+薄荷(尤以非洲東北為佳)",
+    "affinities": "孜然+蒜頭+薄荷(尤以非洲東北為佳)"
   },
   "pairings": [
     { "name": "燈籠椒", "weight": 1 }, { "name": "燜燒料理", "weight": 1 }, 
