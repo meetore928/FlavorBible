@@ -126,6 +126,65 @@ body {
 }
 .search-btn:hover { color: #555; }
 
+/* --- 搜尋建議與食材庫網格 (新增) --- */
+.suggestion-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+    gap: 12px;
+    margin-bottom: 30px;
+}
+
+.suggestion-item {
+    background: #fff;
+    border: 1px solid #e0e0e0;
+    padding: 15px 10px;
+    text-align: center;
+    cursor: pointer;
+    border-radius: 6px;
+    transition: all 0.2s ease;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.02);
+    position: relative;
+    overflow: hidden;
+    
+    /* 讓內容垂直置中 */
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    min-height: 80px;
+}
+
+.suggestion-item:hover {
+    border-color: var(--title-color);
+    transform: translateY(-3px);
+    box-shadow: 0 4px 10px rgba(0,0,0,0.1);
+}
+
+.suggestion-name {
+    font-weight: 900;
+    color: #333;
+    font-size: 18px;
+    line-height: 1.2;
+}
+
+.suggestion-en {
+    display: block;
+    font-size: 13px;
+    color: #888;
+    margin-top: 5px;
+    font-family: sans-serif;
+}
+
+.typo-badge {
+    position: absolute;
+    top: 2px;
+    right: 2px;
+    font-size: 10px;
+    background: #eee;
+    color: #666;
+    padding: 2px 4px;
+    border-radius: 4px;
+}
+
 /* --- 結果顯示 --- */
 .ingredient-title {
     color: var(--title-color);

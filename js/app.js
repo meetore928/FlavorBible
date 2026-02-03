@@ -21,29 +21,10 @@ let navigationStack = [{ page: 'home', data: null }];
 document.addEventListener('DOMContentLoaded', async () => {
     const emptyState = document.getElementById('emptyState');
     const searchPage = document.getElementById('page-search');
-    const searchInput = document.getElementById('searchInput'); // 獲取輸入框
+    const searchInput = document.getElementById('searchInput'); 
     let errorLog = []; 
 
-    // 動態建立"搜尋建議列表"
-    const searchWrapper = searchPage.querySelector('.search-wrapper');
-    const suggestionList = document.createElement('div');
-    suggestionList.id = 'suggestionList';
-    suggestionList.style.display = 'none';
-    searchWrapper.parentNode.insertBefore(suggestionList, searchWrapper.nextSibling);
-
-    // 注入 CSS (建議樣式)
-    const style = document.createElement('style');
-    style.innerHTML = `
-        .suggestion-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 12px; margin-bottom: 30px; }
-        .suggestion-item { background: #fff; border: 1px solid #e0e0e0; padding: 15px 10px; text-align: center; cursor: pointer; border-radius: 6px; transition: all 0.2s ease; box-shadow: 0 2px 4px rgba(0,0,0,0.02); position: relative; overflow: hidden; }
-        .suggestion-item:hover { border-color: var(--title-color); transform: translateY(-3px); box-shadow: 0 4px 10px rgba(0,0,0,0.1); }
-        .suggestion-name { font-weight: 900; color: #333; font-size: 18px; }
-        .suggestion-en { display: block; font-size: 13px; color: #888; margin-top: 5px; font-family: sans-serif; }
-        .typo-badge { position: absolute; top: 2px; right: 2px; font-size: 10px; background: #eee; color: #666; padding: 2px 4px; border-radius: 4px; }
-    `;
-    document.head.appendChild(style);
-
-    // [新增] 綁定即時輸入事件，解決"打出杏不會出現"的問題
+    // 綁定即時輸入事件 (Real-time search)
     if (searchInput) {
         searchInput.addEventListener('input', (e) => {
             triggerSearch(e.target.value);
@@ -85,12 +66,12 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     // 狀態更新
     if (Object.keys(flavorDB).length > 0) {
-        emptyState.innerHTML = '資料庫就緒，輸入關鍵字搜尋 (例如: A, 羊, 義...)';
-        if(errorLog.length > 0) {
+        if(emptyState) emptyState.innerHTML = '資料庫就緒，輸入關鍵字搜尋 (例如: A, 羊, 義...)';
+        if(errorLog.length > 0 && emptyState) {
             emptyState.innerHTML += `<br><div style="color:red; font-size:14px; margin-top:10px;">部分檔案讀取失敗，請檢查 Console</div>`;
         }
     } else {
-        emptyState.innerHTML = '無法讀取資料庫';
+        if(emptyState) emptyState.innerHTML = '無法讀取資料庫';
     }
 
     renderCuisines();
@@ -135,7 +116,7 @@ async function getIngredientData(name) {
     return null;
 }
 
-// --- [新增] 演算法工具：計算字串編輯距離 (Levenshtein Distance) ---
+// --- 演算法工具：Levenshtein Distance (模糊搜尋) ---
 function getEditDistance(a, b) {
     if (a.length === 0) return b.length;
     if (b.length === 0) return a.length;
@@ -164,27 +145,33 @@ function getEditDistance(a, b) {
     return matrix[b.length][a.length];
 }
 
-// --- 核心功能 (已修改為包含容錯與排序) ---
+// --- 核心功能 ---
 
 function triggerSearch(forcedQuery = null) {
-    // 如果沒有傳入參數，則讀取輸入框
     const rawInput = forcedQuery !== null ? forcedQuery : document.getElementById('searchInput').value;
     const query = rawInput.trim();
     const suggestionList = document.getElementById('suggestionList');
 
     if (!query) {
-        // 如果清空了，隱藏建議列表，顯示空狀態
-        suggestionList.style.display = 'none';
-        document.getElementById('emptyState').style.display = 'block';
-        document.getElementById('ingredientResult').style.display = 'none';
+        if(suggestionList) suggestionList.style.display = 'none';
+        const es = document.getElementById('emptyState');
+        const ir = document.getElementById('ingredientResult');
+        if(es) es.style.display = 'block';
+        if(ir) ir.style.display = 'none';
         return;
     }
 
-    // 清空目前顯示
-    document.getElementById('ingredientResult').style.display = 'none';
-    document.getElementById('emptyState').style.display = 'none';
-    suggestionList.innerHTML = '';
-    suggestionList.className = 'suggestion-grid'; 
+    // 隱藏結果區與空狀態
+    const ir = document.getElementById('ingredientResult');
+    const es = document.getElementById('emptyState');
+    if(ir) ir.style.display = 'none';
+    if(es) es.style.display = 'none';
+    
+    // 清空建議列表
+    if(suggestionList) {
+        suggestionList.innerHTML = '';
+        suggestionList.style.display = 'none';
+    }
 
     const lowerQ = query.toLowerCase();
     const matches = [];
@@ -198,23 +185,17 @@ function triggerSearch(forcedQuery = null) {
         let score = 0;
         let isTypo = false;
 
-        // 1. 精確比對 (優先級最高)
+        // 1. 精確比對
         if (lowerName === lowerQ || enName === lowerQ) score += 100;
-
-        // 2. 開頭符合 (優先級高)
+        // 2. 開頭符合
         else if (lowerName.startsWith(lowerQ) || enName.startsWith(lowerQ)) score += 50;
-
-        // 3. 內容包含 (優先級中 - 解決"杏"找不到"杏仁"的問題)
+        // 3. 內容包含
         else if (lowerName.includes(lowerQ) || enName.includes(lowerQ)) score += 30;
-
-        // 4. 容錯搜尋 (優先級低 - 解決打錯字)
+        // 4. 容錯搜尋
         else {
-            // 計算編輯距離 (僅針對 3 個字以上的查詢，避免短字誤判)
             if (query.length >= 3) {
                 const distEn = getEditDistance(enName, lowerQ);
-                // 允許誤差：長度越長允許越多錯誤，基本允許 1-2 個錯字
                 const threshold = query.length > 6 ? 2 : 1;
-                
                 if (distEn <= threshold) {
                     score += 10;
                     isTypo = true;
@@ -232,14 +213,9 @@ function triggerSearch(forcedQuery = null) {
         }
     }
 
-    if (matches.length === 0) {
-        suggestionList.style.display = 'none';
-        // 如果完全沒有建議，可以選擇顯示"找不到"或嘗試顯示最接近的結果
-        // 這裡保持原樣，不顯示
-    } else {
+    if (matches.length > 0 && suggestionList) {
         suggestionList.style.display = 'grid';
         
-        // 排序：分數高 > 字串長度短 (越短通常越精準)
         matches.sort((a, b) => {
             if (b.score !== a.score) return b.score - a.score;
             return a.name.length - b.name.length;
@@ -260,19 +236,21 @@ function triggerSearch(forcedQuery = null) {
             suggestionList.appendChild(div);
         });
         
-        // 如果是按 Enter 觸發的 (forcedQuery 為 null)，且有完全匹配的，更新導航堆疊
         if (forcedQuery === null) navigationStack = [{ page: 'search_results', data: query }];
     }
 }
 
-// 暫存目前顯示的資料，供 Resize 使用
 let currentSingleData = null;
 
 async function showIngredient(name, push = true) {
     document.querySelectorAll('.page-section').forEach(el => el.classList.remove('active'));
     document.getElementById('page-search').classList.add('active');
-    document.getElementById('suggestionList').style.display = 'none';
-    document.getElementById('emptyState').style.display = 'none';
+    
+    // 隱藏其他列表與空狀態
+    const sl = document.getElementById('suggestionList');
+    if(sl) sl.style.display = 'none';
+    const es = document.getElementById('emptyState');
+    if(es) es.style.display = 'none';
     
     const resultDiv = document.getElementById('ingredientResult');
     resultDiv.style.display = 'block';
@@ -330,7 +308,6 @@ async function showIngredient(name, push = true) {
 
 function renderSingleGraph(centerName, pairings) {
     const container = document.getElementById('singleGraph');
-    // 如果 dom 被隱藏，init 會報錯，先檢查 display
     if(container.offsetWidth === 0) return;
 
     if (!singleChart) singleChart = echarts.init(container);
@@ -375,7 +352,6 @@ async function updateBridge() {
     const resultText = document.getElementById('bridgeResultText');
     const container = document.getElementById('bridgeGraph');
     
-    // 檢查容器是否可見
     if(container.offsetWidth === 0 && (!valA && !valB)) return;
 
     if (!bridgeChart) bridgeChart = echarts.init(container);
@@ -417,16 +393,13 @@ async function updateBridge() {
 
 // [修改] 通用繪圖函式 (增加手機版判斷邏輯)
 function renderChart(chartInstance, nodes, links) {
-    // 1. 偵測是否為手機
     const isMobile = window.innerWidth < 768;
 
-    // 2. 設定不同的參數
     const sizeFactor = isMobile ? 0.6 : 1; 
     const forceRepulsion = isMobile ? 150 : 300; 
     const edgeLength = isMobile ? 40 : 80; 
     const labelSize = isMobile ? 10 : 12; 
 
-    // 3. 調整節點數據 (動態縮放)
     const adjustedNodes = nodes.map(node => ({
         ...node,
         symbolSize: (node.symbolSize || 20) * sizeFactor,
@@ -462,6 +435,42 @@ function renderChart(chartInstance, nodes, links) {
     chartInstance.setOption(option);
 }
 
+// --- [新功能] 食材庫渲染 ---
+function renderLibrary() {
+    const container = document.getElementById('libraryGrid');
+    const countLabel = document.getElementById('libraryCount');
+    
+    if (!container) return;
+
+    container.innerHTML = '';
+    
+    // 取得所有 key 並排序 (中文筆畫/拼音排序)
+    const allKeys = Object.keys(flavorDB).sort((a, b) => a.localeCompare(b, 'zh-Hant'));
+    
+    if (countLabel) countLabel.innerText = `(${allKeys.length})`;
+
+    if (allKeys.length === 0) {
+        container.innerHTML = '<div style="grid-column:1/-1; text-align:center; color:#999; padding:20px;">資料庫目前為空</div>';
+        return;
+    }
+
+    allKeys.forEach(key => {
+        const data = flavorDB[key];
+        const div = document.createElement('div');
+        div.className = 'suggestion-item'; // 共用樣式
+        div.innerHTML = `
+            <div class="suggestion-name">${key}</div>
+            ${data.enName ? `<div class="suggestion-en">${data.enName}</div>` : ''}
+        `;
+        div.onclick = () => {
+            // 切換回首頁並顯示食材
+            navigationStack = [{ page: 'home', data: null }]; // 重置導航
+            showIngredient(key);
+        };
+        container.appendChild(div);
+    });
+}
+
 // --- 導航與其他函式 ---
 
 function goBack() {
@@ -488,15 +497,21 @@ function resetApp() {
     
     document.getElementById('searchInput').value = ''; 
     document.getElementById('ingredientResult').style.display = 'none'; 
-    document.getElementById('suggestionList').style.display = 'none'; 
-    document.getElementById('emptyState').style.display = 'block'; 
+    const sl = document.getElementById('suggestionList');
+    if(sl) sl.style.display = 'none'; 
+    const es = document.getElementById('emptyState');
+    if(es) es.style.display = 'block'; 
     
-    document.getElementById('sidebar').classList.remove('active');
-    document.querySelector('.sidebar-overlay').classList.remove('active');
+    // 關閉側邊選單
+    const sb = document.getElementById('sidebar');
+    if(sb) sb.classList.remove('active');
+    const sbo = document.querySelector('.sidebar-overlay');
+    if(sbo) sbo.classList.remove('active');
 }
 
 function renderOnlineRecipes() {
     const container = document.getElementById('recipeListContainer');
+    if(!container) return;
     container.innerHTML = '';
     if (onlineRecipes.length === 0) {
         container.innerHTML = '<div style="text-align:center;color:#999;">目前沒有食譜。</div>';
@@ -515,6 +530,7 @@ function renderOnlineRecipes() {
 
 function renderCuisines() { 
     const grid = document.getElementById('cuisineGrid'); 
+    if(!grid) return;
     grid.innerHTML = ''; 
     if (cuisineList.length === 0) {
         grid.innerHTML = '<div style="text-align:center; color:#999;">尚未設定國家清單</div>';
@@ -542,11 +558,16 @@ function switchPage(p, push = true) {
     document.getElementById('sidebar').classList.remove('active');
     document.querySelector('.sidebar-overlay').classList.remove('active');
     document.querySelectorAll('.page-section').forEach(el => el.classList.remove('active')); 
-    document.getElementById(`page-${p}`).classList.add('active'); 
+    
+    const target = document.getElementById(`page-${p}`);
+    if(target) target.classList.add('active'); 
+    
     if (push) navigationStack.push({page: p, data: null}); 
     
-    // 解決切換頁面時圖表可能沒渲染的問題
     if(p === 'bridge') setTimeout(updateBridge, 100);
+    
+    // [新功能] 如果切換到食材庫，觸發渲染
+    if(p === 'library') renderLibrary();
 }
 
 function handleEnter(e) { if(e.key === 'Enter') triggerSearch(); }
