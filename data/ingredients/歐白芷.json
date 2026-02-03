@@ -1,0 +1,39 @@
+{
+  "name": "歐白芷",
+  "enName": "Angelica",
+  "meta": {
+    "taste": "苦、甜",
+    "intensity": "濃烈",
+    "tips": "烹調後期再加入，用於烘培食品。此食材主要用來平衡高酸度的水果，以減少糖分的需求量。",
+    "affinities": "歐白芷+鮮奶油+大黃",
+    "notes": "薑:生薑、糖漬薑"
+  },
+  "pairings": [
+    { "name": "杏仁", "weight": 1 },
+    { "name": "茴芹", "weight": 1 },
+    { "name": "杏桃", "weight": 1 },
+    { "name": "糖果", "weight": 1 },
+    { "name": "鮮奶油", "weight": 1 },
+    { "name": "冰淇淋", "weight": 1 },
+    { "name": "卡士達", "weight": 1 },
+    { "name": "甜點", "weight": 2 },
+    { "name": "魚", "weight": 1 },
+    { "name": "水果", "weight": 1 },
+    { "name": "薑", "weight": 1 },
+    { "name": "榛果", "weight": 1 },
+    { "name": "杜松子", "weight": 1 },
+    { "name": "薰衣草", "weight": 1 },
+    { "name": "檸檬香蜂草", "weight": 1 },
+    { "name": "西洋山薄荷", "weight": 1 },
+    { "name": "香甜酒", "weight": 1 },
+    { "name": "菇蕈類", "weight": 1 },
+    { "name": "肉豆蔻", "weight": 1 },
+    { "name": "柳橙", "weight": 1 },
+    { "name": "黑胡椒", "weight": 1 },
+    { "name": "洋李", "weight": 1 },
+    { "name": "大黃", "weight": 2 },
+    { "name": "沙拉", "weight": 1 },
+    { "name": "貝蝦蟹類", "weight": 1 },
+    { "name": "草莓", "weight": 1 }
+  ]
+}

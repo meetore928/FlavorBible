@@ -1,0 +1,19 @@
+{
+  "name": "杏仁香甜酒",
+  "enName": "Amaretto",
+  "meta": {},
+  "pairings": [
+    { "name": "杏仁", "weight": 1 },
+    { "name": "杏桃", "weight": 1 },
+    { "name": "奶油", "weight": 1 },
+    { "name": "櫻桃", "weight": 1 },
+    { "name": "巧克力", "weight": 1 },
+    { "name": "咖啡", "weight": 1 },
+    { "name": "鮮奶油", "weight": 1 },
+    { "name": "榛果", "weight": 1 },
+    { "name": "義式料理", "weight": 1 },
+    { "name": "桃子", "weight": 1 },
+    { "name": "豬肉", "weight": 1 },
+    { "name": "糖", "weight": 1 }
+  ]
+}
