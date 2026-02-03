@@ -1,0 +1,19 @@
+{
+  "name": "非洲料理",
+  "enName": "African Cuisine",
+  "meta": {
+    "affinities": "杏仁+小荳蔻+糖,黃瓜+薄荷+優格",
+    "notes": "(同時參見"衣索比亞料理"與"摩洛哥料理",辣椒(尤以西非品種為佳)、魚(尤以近海魚類為佳)、水果(尤以熱帶水果為佳)、綠葉蔬菜(尤以蒸或燉為佳)、碗豆(尤以黑眼豆為佳)、燉煮料理(尤以乳酪或蔬菜為佳)、山芋(尤以西非品種為佳)"
+  },
+  "pairings": [
+    { "name": "香蕉", "weight": 2 }, { "name": "燈籠椒", "weight": 1 }, { "name": "燜燒料理", "weight": 1 }, 
+    { "name": "雞肉", "weight": 2 }, { "name": "辣椒", "weight": 1 }, { "name": "椰子", "weight": 1 },
+    { "name": "玉米", "weight": 1 }, { "name": "魚", "weight": 1 }, { "name": "水果", "weight": 1 },
+    { "name": "蒜頭", "weight": 1 }, { "name": "山羊肉", "weight": 1 }, { "name": "綠葉蔬菜", "weight": 1 },
+    { "name": "芒果", "weight": 1 }, { "name": "甜瓜", "weight": 1 }, { "name": "秋葵", "weight": 2 }, 
+    { "name": "洋蔥", "weight": 1 }, { "name": "木瓜", "weight": 1 }, { "name": "花生", "weight": 2 }, 
+    { "name": "碗豆", "weight": 1 }, { "name": "大蕉", "weight": 1 }, { "name": "湯", "weight": 1 }, 
+    { "name": "燉煮料理", "weight": 2 }, { "name": "番薯", "weight": 1 }, { "name": "番茄", "weight": 1 },
+    { "name": "西瓜", "weight": 1 }, { "name": "山芋", "weight": 2 }
+  ]
+}
