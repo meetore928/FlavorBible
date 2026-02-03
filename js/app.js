@@ -1,6 +1,6 @@
 // --- 核心資料 ---
-let flavorDB = {};     // 總資料庫 (包含食材與國家)
-let cuisineList = [];  // 專門存放國家的清單 (用於顯示在"世界風味"頁面)
+let flavorDB = {};     // 總資料庫
+let cuisineList = [];  // 國家清單
 let onlineRecipes = [];
 
 // 筆記標籤對照
@@ -13,139 +13,198 @@ const noteLabels = {
 // 導航堆疊
 let navigationStack = [{ page: 'home', data: null }];
 
-// --- 初始化 (GitHub 自動載入) ---
+// --- 初始化 ---
 document.addEventListener('DOMContentLoaded', async () => {
     const emptyState = document.getElementById('emptyState');
+    const searchPage = document.getElementById('page-search');
     let errorLog = []; 
 
-    // 1. 載入一般食材清單 (list.json)
+    // [新增] 動態建立"搜尋建議列表"的容器與樣式，不需動 HTML/CSS
+    const searchWrapper = searchPage.querySelector('.search-wrapper');
+    const suggestionList = document.createElement('div');
+    suggestionList.id = 'suggestionList';
+    suggestionList.style.display = 'none';
+    // 插入在搜尋框下方
+    searchWrapper.parentNode.insertBefore(suggestionList, searchWrapper.nextSibling);
+
+    // [新增] 注入建議列表的 CSS 樣式
+    const style = document.createElement('style');
+    style.innerHTML = `
+        .suggestion-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+            gap: 12px;
+            margin-bottom: 30px;
+        }
+        .suggestion-item {
+            background: #fff;
+            border: 1px solid #e0e0e0;
+            padding: 15px 10px;
+            text-align: center;
+            cursor: pointer;
+            border-radius: 6px;
+            transition: all 0.2s ease;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.02);
+        }
+        .suggestion-item:hover {
+            border-color: var(--title-color);
+            transform: translateY(-3px);
+            box-shadow: 0 4px 10px rgba(0,0,0,0.1);
+        }
+        .suggestion-name { font-weight: 900; color: #333; font-size: 18px; }
+        .suggestion-en { display: block; font-size: 13px; color: #888; margin-top: 5px; font-family: sans-serif; }
+    `;
+    document.head.appendChild(style);
+
+    // 1. 載入食材
     try {
         const listRes = await fetch('data/list.json');
-        if (!listRes.ok) throw new Error(`找不到 data/list.json`);
+        if (!listRes.ok) throw new Error(`找不到 list.json`);
         const ingList = await listRes.json();
-        
         await loadBatchIngredients(ingList, errorLog);
-    } catch (e) {
-        errorLog.push(`❌ 無法讀取 list.json: ${e.message}`);
-    }
+    } catch (e) { errorLog.push(`list.json 讀取失敗: ${e.message}`); }
 
-    // 2. 載入國家/菜系清單 (cuisines_list.json) - 新增功能
+    // 2. 載入國家
     try {
         const cuisineRes = await fetch('data/cuisines_list.json');
         if (cuisineRes.ok) {
             const cListNames = await cuisineRes.json();
-            // 載入這些國家的 JSON 檔
             await loadBatchIngredients(cListNames, errorLog);
-            
-            // 將載入完成的國家資料存入 cuisineList 供渲染使用
-            cuisineList = cListNames.filter(name => flavorDB[name]).map(name => flavorDB[name]);
+            cuisineList = cListNames.filter(n => flavorDB[n]).map(n => flavorDB[n]);
         }
-    } catch (e) {
-        console.warn("沒有發現獨立的 cuisines_list.json，跳過國家載入", e);
-    }
+    } catch (e) { console.warn("跳過國家載入", e); }
 
-    // 3. 載入食譜 (非必要)
+    // 3. 載入食譜
     try {
         const recListRes = await fetch('data/recipes_list.json');
         if (recListRes.ok) {
             const recList = await recListRes.json();
-            const recTasks = recList.map(async (name) => {
+            const tasks = recList.map(async (n) => {
                 try {
-                    const res = await fetch(`data/recipes/${name}.json`);
-                    if (res.ok) onlineRecipes.push(await res.json());
-                } catch (err) { }
+                    const r = await fetch(`data/recipes/${n}.json`);
+                    if(r.ok) onlineRecipes.push(await r.json());
+                } catch(err){}
             });
-            await Promise.all(recTasks);
+            await Promise.all(tasks);
         }
-    } catch (e) { console.log("無食譜清單"); }
+    } catch (e) {}
 
-    // 4. 更新畫面狀態
+    // 4. 狀態更新
     if (Object.keys(flavorDB).length > 0) {
-        emptyState.innerHTML = '資料庫同步完成，請輸入食材。';
-        if (errorLog.length > 0) {
-            emptyState.innerHTML += `<br><br><div style="color:#d9534f;text-align:left;background:#fff0f0;padding:10px;">部分檔案讀取失敗：<br>${errorLog.join('<br>')}</div>`;
-        }
+        emptyState.innerHTML = '資料庫就緒，輸入關鍵字搜尋 (例如: A, 羊, 義...)';
+        if(errorLog.length > 0) emptyState.innerHTML += `<br><span style="color:red">部分載入失敗</span>`;
     } else {
-        emptyState.innerHTML = `<div style="color:red;font-weight:bold;">無法讀取資料</div>`;
+        emptyState.innerHTML = '無法讀取資料庫';
     }
 
-    renderCuisines();      // 渲染國家頁面
-    renderOnlineRecipes(); // 渲染食譜頁面
+    renderCuisines();
+    renderOnlineRecipes();
 });
 
-// 通用載入函數：傳入名稱陣列，將檔案載入 flavorDB
 async function loadBatchIngredients(names, errorLog) {
     const tasks = names.map(async (name) => {
-        // 如果已經載入過，就不重複載入 (避免 list.json 和 cuisines_list.json 重複)
         if (flavorDB[name]) return;
-
         try {
             const res = await fetch(`data/ingredients/${name}.json`);
-            if (!res.ok) throw new Error(`HTTP ${res.status}`);
-            const data = await res.json();
-            flavorDB[name] = data; // 存入總資料庫
-        } catch (err) {
-            console.warn(`讀取失敗: ${name}`, err);
-            errorLog.push(`❌ 找不到: ingredients/${name}.json`);
-        }
+            if(!res.ok) throw new Error();
+            flavorDB[name] = await res.json();
+        } catch (err) { errorLog.push(name); }
     });
     await Promise.all(tasks);
 }
 
+// --- 核心功能改進 ---
 
-// --- 核心功能函數 ---
-
-function triggerSearch() {
-    const query = document.getElementById('searchInput').value.trim();
-    if (!query) return;
-    navigationStack = [{ page: 'home', data: null }];
+function triggerSearch(forcedQuery = null) {
+    // 支援從上一頁回來時，強制帶入之前的搜尋字
+    const rawInput = document.getElementById('searchInput').value;
+    const query = (forcedQuery !== null ? forcedQuery : rawInput).trim();
     
-    // 優先搜尋精確匹配
-    if (flavorDB[query]) {
-        showIngredient(query, true);
-    } else {
-        // 英文搜尋
-        let found = false;
-        for (const [key, val] of Object.entries(flavorDB)) {
-            if (val.enName && val.enName.toLowerCase() === query.toLowerCase()) {
-                showIngredient(key, true);
-                found = true;
-                break;
-            }
+    if (!query) return;
+
+    // 清空畫面
+    document.getElementById('ingredientResult').style.display = 'none';
+    document.getElementById('emptyState').style.display = 'none';
+    const suggestionList = document.getElementById('suggestionList');
+    suggestionList.innerHTML = '';
+    suggestionList.className = 'suggestion-grid'; 
+
+    const lowerQ = query.toLowerCase();
+    const matches = [];
+
+    // [關鍵邏輯] 搜尋所有"開頭"符合的項目 (中文或英文)
+    for (const [key, data] of Object.entries(flavorDB)) {
+        const nameMatch = key.toLowerCase().startsWith(lowerQ);
+        // 防呆：確認 data.enName 存在才比對
+        const enMatch = data.enName && data.enName.toLowerCase().startsWith(lowerQ);
+
+        if (nameMatch || enMatch) {
+            matches.push({ name: key, enName: data.enName || '' });
         }
-        if (!found) showIngredient(query, true); 
+    }
+
+    if (matches.length === 0) {
+        // 沒找到：顯示原本的查無資料畫面
+        suggestionList.style.display = 'none';
+        showIngredient(query, true); 
+    } else {
+        // 有找到：顯示建議列表
+        suggestionList.style.display = 'grid';
+        
+        // 依照名稱長度排序 (短的在前面，通常是更精準的匹配)
+        matches.sort((a, b) => a.name.length - b.name.length);
+
+        matches.forEach(m => {
+            const div = document.createElement('div');
+            div.className = 'suggestion-item';
+            // 標示出關鍵字 (選用)
+            div.innerHTML = `
+                <div class="suggestion-name">${m.name}</div>
+                ${m.enName ? `<div class="suggestion-en">${m.enName}</div>` : ''}
+            `;
+            div.onclick = () => showIngredient(m.name);
+            suggestionList.appendChild(div);
+        });
+
+        // 如果是新搜尋 (非上一頁返回)，將搜尋結果狀態推入歷史堆疊
+        if (forcedQuery === null) {
+            navigationStack = [{ page: 'search_results', data: query }];
+        }
     }
 }
 
 function showIngredient(name, push = true) {
+    // 切換頁面顯示
     document.querySelectorAll('.page-section').forEach(el => el.classList.remove('active'));
     document.getElementById('page-search').classList.add('active');
     
-    const data = flavorDB[name];
+    // 隱藏搜尋列表，顯示詳細資料
+    document.getElementById('suggestionList').style.display = 'none';
+    document.getElementById('emptyState').style.display = 'none';
+    
     const resultDiv = document.getElementById('ingredientResult');
-    const emptyDiv = document.getElementById('emptyState');
+    resultDiv.style.display = 'block';
     
     document.getElementById('searchInput').value = name;
-    emptyDiv.style.display = 'none';
-    resultDiv.style.display = 'block';
+    const data = flavorDB[name];
 
     if (data) {
         document.getElementById('ingredientTitle').innerHTML = name + (data.enName ? ` <small style="color:#888;">${data.enName}</small>` : '');
         const notes = document.getElementById('notesContainer');
         notes.innerHTML = '';
         
-        // 顯示 Meta 資訊
         for (const [k, label] of Object.entries(noteLabels)) {
             if (data.meta && data.meta[k]) {
                 notes.innerHTML += `<div class="note-item"><span class="note-label">${label}</span>${data.meta[k]}</div>`;
             }
         }
 
-        // 顯示搭配列表
-        document.getElementById('pairingHeader').style.display = 'block';
         const list = document.getElementById('pairingList');
+        const header = document.getElementById('pairingHeader');
         list.innerHTML = '';
-        if (data.pairings) {
+        
+        if (data.pairings && data.pairings.length > 0) {
+            header.style.display = 'block';
             data.pairings.forEach(item => {
                 const li = document.createElement('li');
                 li.textContent = item.name;
@@ -153,11 +212,12 @@ function showIngredient(name, push = true) {
                 li.onclick = () => showIngredient(item.name);
                 list.appendChild(li);
             });
+        } else {
+            header.style.display = 'none';
         }
     } else {
-        // 查無資料
         document.getElementById('ingredientTitle').innerText = name;
-        document.getElementById('notesContainer').innerHTML = '<div style="color:#999; padding:20px 0;"><i>資料庫尚未建立此項目。</i></div>';
+        document.getElementById('notesContainer').innerHTML = '<div style="color:#999; padding:20px 0;"><i>資料庫中尚未建立此項目。</i></div>';
         document.getElementById('pairingHeader').style.display = 'none';
         document.getElementById('pairingList').innerHTML = '';
     }
@@ -169,9 +229,21 @@ function goBack() {
     if (navigationStack.length > 1) {
         navigationStack.pop(); 
         const prev = navigationStack[navigationStack.length - 1]; 
-        if (prev.page === 'home') resetApp();
-        else if (prev.page === 'ingredient') showIngredient(prev.data, false);
-        else switchPage(prev.page, false);
+        
+        if (prev.page === 'home') {
+            resetApp();
+        } 
+        else if (prev.page === 'ingredient') {
+            showIngredient(prev.data, false);
+        }
+        else if (prev.page === 'search_results') {
+            // [關鍵] 如果上一頁是搜尋結果，重新觸發搜尋來顯示列表
+            document.getElementById('searchInput').value = prev.data;
+            triggerSearch(prev.data);
+        }
+        else {
+            switchPage(prev.page, false);
+        }
     } else {
         resetApp();
     }
@@ -181,13 +253,17 @@ function resetApp() {
     navigationStack = [{ page: 'home', data: null }];
     document.querySelectorAll('.page-section').forEach(el => el.classList.remove('active'));
     document.getElementById('page-search').classList.add('active');
+    
     document.getElementById('searchInput').value = ''; 
     document.getElementById('ingredientResult').style.display = 'none'; 
+    document.getElementById('suggestionList').style.display = 'none'; // 隱藏建議列表
     document.getElementById('emptyState').style.display = 'block'; 
+    
     document.getElementById('sidebar').classList.remove('active');
     document.querySelector('.sidebar-overlay').classList.remove('active');
 }
 
+// 渲染食譜與國家功能保持不變
 function renderOnlineRecipes() {
     const container = document.getElementById('recipeListContainer');
     container.innerHTML = '';
@@ -198,15 +274,33 @@ function renderOnlineRecipes() {
     onlineRecipes.forEach(recipe => {
         const card = document.createElement('div');
         card.className = 'recipe-card';
-        let ingStr = '';
-        if (recipe.ingredients) {
-            ingStr = recipe.ingredients.map(i => 
-                `<span style="cursor:pointer;text-decoration:underline;" onclick="showIngredient('${i.name}')">${i.name}</span>: ${i.qty}`
-            ).join('<br>');
-        }
+        let ingStr = (recipe.ingredients || []).map(i => 
+            `<span style="cursor:pointer;text-decoration:underline;" onclick="showIngredient('${i.name}')">${i.name}</span>: ${i.qty}`
+        ).join('<br>');
         card.innerHTML = `<div class="recipe-name">${recipe.name}</div><div style="font-size:14px;color:#555;">${ingStr}</div>`;
         container.appendChild(card);
     });
+}
+
+function renderCuisines() { 
+    const grid = document.getElementById('cuisineGrid'); 
+    grid.innerHTML = ''; 
+    if (cuisineList.length === 0) {
+        grid.innerHTML = '<div style="text-align:center; color:#999;">尚未設定國家清單</div>';
+        return;
+    }
+    cuisineList.forEach(c => { 
+        const div = document.createElement('div'); 
+        div.className = 'cuisine-card'; 
+        let top = (c.pairings || []).sort((a,b)=>b.weight-a.weight).slice(0,4).map(p=>p.name).join('、');
+        div.innerHTML = `<div>${c.name}</div><div style="font-size:12px;color:#666;margin-top:5px;">${top}...</div>`;
+        div.onclick = () => { 
+            // 點擊國家分類，視為一種特殊的搜尋
+            navigationStack = [{ page: 'home', data: null }];
+            showIngredient(c.name, true); 
+        }; 
+        grid.appendChild(div); 
+    }); 
 }
 
 function toggleMenu() { 
@@ -223,40 +317,3 @@ function switchPage(p, push = true) {
 }
 
 function handleEnter(e) { if(e.key === 'Enter') triggerSearch(); }
-
-// --- 渲染國家/菜系 (新版) ---
-function renderCuisines() { 
-    const grid = document.getElementById('cuisineGrid'); 
-    grid.innerHTML = ''; 
-
-    if (cuisineList.length === 0) {
-        grid.innerHTML = '<div style="grid-column: 1/-1; text-align:center; color:#999;">尚未設定國家清單 (data/cuisines_list.json)</div>';
-        return;
-    }
-
-    cuisineList.forEach(c => { 
-        const div = document.createElement('div'); 
-        div.className = 'cuisine-card'; 
-        
-        // 嘗試從 pairings 裡抓出前 4 個權重高的食材當作簡介
-        let topIngredients = '';
-        if (c.pairings && c.pairings.length > 0) {
-            // 排序：權重高的在前 -> 取前4個 -> 轉成字串
-            const picks = c.pairings
-                .sort((a,b) => b.weight - a.weight)
-                .slice(0, 4)
-                .map(p => p.name)
-                .join('、');
-            topIngredients = `<div style="font-size:12px; font-weight:normal; color:#666; margin-top:5px;">${picks}...</div>`;
-        }
-
-        div.innerHTML = `<div>${c.name}</div>${topIngredients}`;
-        
-        // 點擊後直接跳轉到該國家的詳細頁面 (像食材一樣顯示)
-        div.onclick = () => { 
-            navigationStack = [{ page: 'home', data: null }];
-            showIngredient(c.name, true); 
-        }; 
-        grid.appendChild(div); 
-    }); 
-}
