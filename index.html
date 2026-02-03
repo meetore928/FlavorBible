@@ -7,8 +7,9 @@
     
     <link href="https://fonts.googleapis.com/css2?family=Noto+Serif+TC:wght@400;600;900&display=swap" rel="stylesheet">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
-    
     <link rel="stylesheet" href="css/main.css">
+    
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/echarts/5.4.3/echarts.min.js"></script>
 </head>
 <body>
 
@@ -21,6 +22,7 @@
     <div class="sidebar-overlay" onclick="toggleMenu()"></div>
     <div class="sidebar" id="sidebar">
         <a class="menu-item" onclick="switchPage('search')"><i class="fas fa-search"></i> 食材搜尋</a>
+        <a class="menu-item" onclick="switchPage('bridge')"><i class="fas fa-project-diagram"></i> 風味橋接</a>
         <a class="menu-item" onclick="switchPage('cuisines')"><i class="fas fa-globe-asia"></i> 世界風味</a>
         <a class="menu-item" onclick="switchPage('recipes')"><i class="fas fa-book-open"></i> 我的食譜庫</a>
     </div>
@@ -35,6 +37,9 @@
             
             <div id="ingredientResult" style="display:none;">
                 <div id="ingredientTitle" class="ingredient-title"></div>
+                
+                <div id="singleGraph" class="graph-container"></div>
+                
                 <div id="notesContainer" class="notes-section"></div>
                 <div id="pairingHeader" class="pairing-header">推薦搭配：</div>
                 <ul id="pairingList" class="pairings-list"></ul>
@@ -42,6 +47,19 @@
             
             <div id="emptyState" style="text-align:center; color:#999; margin-top:50px;">
                 正在連線至 GitHub 資料庫...
+            </div>
+        </div>
+
+        <div id="page-bridge" class="page-section">
+            <h2 style="text-align:center; color:var(--title-color);">風味橋接實驗室</h2>
+            <div class="bridge-controls">
+                <input type="text" id="bridgeInputA" class="bridge-input" placeholder="食材 A (輸入後按Enter)" onchange="updateBridge()">
+                <div style="margin:0 10px; color:#ccc;">+</div>
+                <input type="text" id="bridgeInputB" class="bridge-input" placeholder="食材 B (輸入後按Enter)" onchange="updateBridge()">
+            </div>
+            <div id="bridgeGraph" class="graph-container" style="height: 500px;"></div>
+            <div id="bridgeResultText" style="text-align:center; margin-top:20px; color:#666;">
+                輸入兩個食材，找出它們的共同連結...
             </div>
         </div>
 

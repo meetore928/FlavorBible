@@ -205,3 +205,49 @@ body {
 }
 
 @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+
+/* --- [新增] 圖表與橋接頁面樣式 --- */
+
+/* 用來裝 ECharts 關係圖的容器 */
+.graph-container {
+    width: 100%;
+    height: 350px; /* 預設高度 */
+    background: #fdfdfb;
+    border: 1px solid #eee;
+    border-radius: 8px;
+    margin-bottom: 25px;
+    overflow: hidden; /* 避免圖表超出圓角 */
+}
+
+/* 風味橋接頁面的輸入框區域 */
+.bridge-controls {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    margin-bottom: 20px;
+}
+
+/* 輸入框樣式 */
+.bridge-input {
+    width: 40%; /* 兩個輸入框各佔 40% */
+    padding: 10px;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    font-family: 'Noto Serif TC', serif;
+    font-size: 16px;
+    text-align: center;
+    transition: border-color 0.3s;
+}
+
+/* 輸入框選中時的效果 */
+.bridge-input:focus {
+    border-color: var(--title-color);
+    outline: none;
+    background-color: #fffcf5;
+}
+
+/* 針對橋接頁面的圖表高度做特殊調整 (讓它比搜尋頁的大一點) */
+#bridgeGraph {
+    height: 500px;
+    box-shadow: inset 0 0 20px rgba(0,0,0,0.02); /* 增加一點內陰影增加質感 */
+}

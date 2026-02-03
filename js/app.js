@@ -3,6 +3,10 @@ let flavorDB = {};     // 總資料庫
 let cuisineList = [];  // 國家清單
 let onlineRecipes = [];
 
+// ECharts 實例變數
+let singleChart = null;
+let bridgeChart = null;
+
 // 筆記標籤對照
 const noteLabels = { 
     season: "季節", taste: "味道", tips: "小秘訣", 
@@ -19,44 +23,25 @@ document.addEventListener('DOMContentLoaded', async () => {
     const searchPage = document.getElementById('page-search');
     let errorLog = []; 
 
-    // [新增] 動態建立"搜尋建議列表"的容器與樣式，不需動 HTML/CSS
+    // 動態建立"搜尋建議列表"
     const searchWrapper = searchPage.querySelector('.search-wrapper');
     const suggestionList = document.createElement('div');
     suggestionList.id = 'suggestionList';
     suggestionList.style.display = 'none';
-    // 插入在搜尋框下方
     searchWrapper.parentNode.insertBefore(suggestionList, searchWrapper.nextSibling);
 
-    // [新增] 注入建議列表的 CSS 樣式
+    // 注入 CSS
     const style = document.createElement('style');
     style.innerHTML = `
-        .suggestion-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
-            gap: 12px;
-            margin-bottom: 30px;
-        }
-        .suggestion-item {
-            background: #fff;
-            border: 1px solid #e0e0e0;
-            padding: 15px 10px;
-            text-align: center;
-            cursor: pointer;
-            border-radius: 6px;
-            transition: all 0.2s ease;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.02);
-        }
-        .suggestion-item:hover {
-            border-color: var(--title-color);
-            transform: translateY(-3px);
-            box-shadow: 0 4px 10px rgba(0,0,0,0.1);
-        }
+        .suggestion-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 12px; margin-bottom: 30px; }
+        .suggestion-item { background: #fff; border: 1px solid #e0e0e0; padding: 15px 10px; text-align: center; cursor: pointer; border-radius: 6px; transition: all 0.2s ease; box-shadow: 0 2px 4px rgba(0,0,0,0.02); }
+        .suggestion-item:hover { border-color: var(--title-color); transform: translateY(-3px); box-shadow: 0 4px 10px rgba(0,0,0,0.1); }
         .suggestion-name { font-weight: 900; color: #333; font-size: 18px; }
         .suggestion-en { display: block; font-size: 13px; color: #888; margin-top: 5px; font-family: sans-serif; }
     `;
     document.head.appendChild(style);
 
-    // 1. 載入食材
+    // 1. 載入食材清單
     try {
         const listRes = await fetch('data/list.json');
         if (!listRes.ok) throw new Error(`找不到 list.json`);
@@ -89,22 +74,24 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
     } catch (e) {}
 
-    // 4. 狀態更新
+    // 狀態更新
     if (Object.keys(flavorDB).length > 0) {
         emptyState.innerHTML = '資料庫就緒，輸入關鍵字搜尋 (例如: A, 羊, 義...)';
-       if(errorLog.length > 0) {
-    emptyState.innerHTML += `<br><div style="color:red; font-size:14px; margin-top:10px; background:#fff0f0; padding:10px; border-radius:5px;">
-        <strong>以下檔案讀取失敗：</strong><br>
-        ${errorLog.map(e => `❌ ${e}`).join('<br>')}
-        <br><span style="font-size:12px; color:#666;">(請檢查 data/ingredients/ 資料夾中是否有這些檔案，且檔名完全一致)</span>
-    </div>`;
-}
+        if(errorLog.length > 0) {
+            emptyState.innerHTML += `<br><div style="color:red; font-size:14px; margin-top:10px;">部分檔案讀取失敗，請檢查 Console</div>`;
+        }
     } else {
         emptyState.innerHTML = '無法讀取資料庫';
     }
 
     renderCuisines();
     renderOnlineRecipes();
+    
+    // 初始化 ECharts (視窗縮放時調整大小)
+    window.addEventListener('resize', () => {
+        if(singleChart) singleChart.resize();
+        if(bridgeChart) bridgeChart.resize();
+    });
 });
 
 async function loadBatchIngredients(names, errorLog) {
@@ -119,16 +106,28 @@ async function loadBatchIngredients(names, errorLog) {
     await Promise.all(tasks);
 }
 
-// --- 核心功能改進 ---
+// 輔助：確保取得食材資料 (包含尚未載入的)
+async function getIngredientData(name) {
+    if (flavorDB[name]) return flavorDB[name];
+    try {
+        const res = await fetch(`data/ingredients/${name}.json`);
+        if (res.ok) {
+            const data = await res.json();
+            flavorDB[name] = data;
+            return data;
+        }
+    } catch(e) {}
+    return null;
+}
+
+// --- 核心功能 ---
 
 function triggerSearch(forcedQuery = null) {
-    // 支援從上一頁回來時，強制帶入之前的搜尋字
     const rawInput = document.getElementById('searchInput').value;
     const query = (forcedQuery !== null ? forcedQuery : rawInput).trim();
-    
     if (!query) return;
 
-    // 清空畫面
+    // 清空與重置
     document.getElementById('ingredientResult').style.display = 'none';
     document.getElementById('emptyState').style.display = 'none';
     const suggestionList = document.getElementById('suggestionList');
@@ -138,53 +137,33 @@ function triggerSearch(forcedQuery = null) {
     const lowerQ = query.toLowerCase();
     const matches = [];
 
-    // [關鍵邏輯] 搜尋所有"開頭"符合的項目 (中文或英文)
     for (const [key, data] of Object.entries(flavorDB)) {
         const nameMatch = key.toLowerCase().startsWith(lowerQ);
-        // 防呆：確認 data.enName 存在才比對
         const enMatch = data.enName && data.enName.toLowerCase().startsWith(lowerQ);
-
-        if (nameMatch || enMatch) {
-            matches.push({ name: key, enName: data.enName || '' });
-        }
+        if (nameMatch || enMatch) matches.push({ name: key, enName: data.enName || '' });
     }
 
     if (matches.length === 0) {
-        // 沒找到：顯示原本的查無資料畫面
         suggestionList.style.display = 'none';
         showIngredient(query, true); 
     } else {
-        // 有找到：顯示建議列表
         suggestionList.style.display = 'grid';
-        
-        // 依照名稱長度排序 (短的在前面，通常是更精準的匹配)
         matches.sort((a, b) => a.name.length - b.name.length);
-
         matches.forEach(m => {
             const div = document.createElement('div');
             div.className = 'suggestion-item';
-            // 標示出關鍵字 (選用)
-            div.innerHTML = `
-                <div class="suggestion-name">${m.name}</div>
-                ${m.enName ? `<div class="suggestion-en">${m.enName}</div>` : ''}
-            `;
+            div.innerHTML = `<div class="suggestion-name">${m.name}</div>${m.enName ? `<div class="suggestion-en">${m.enName}</div>` : ''}`;
             div.onclick = () => showIngredient(m.name);
             suggestionList.appendChild(div);
         });
-
-        // 如果是新搜尋 (非上一頁返回)，將搜尋結果狀態推入歷史堆疊
-        if (forcedQuery === null) {
-            navigationStack = [{ page: 'search_results', data: query }];
-        }
+        if (forcedQuery === null) navigationStack = [{ page: 'search_results', data: query }];
     }
 }
 
-function showIngredient(name, push = true) {
-    // 切換頁面顯示
+// [修改] 顯示單一食材：同時渲染圖表 (方案B) 與 列表
+async function showIngredient(name, push = true) {
     document.querySelectorAll('.page-section').forEach(el => el.classList.remove('active'));
     document.getElementById('page-search').classList.add('active');
-    
-    // 隱藏搜尋列表，顯示詳細資料
     document.getElementById('suggestionList').style.display = 'none';
     document.getElementById('emptyState').style.display = 'none';
     
@@ -192,26 +171,30 @@ function showIngredient(name, push = true) {
     resultDiv.style.display = 'block';
     
     document.getElementById('searchInput').value = name;
-    const data = flavorDB[name];
+    
+    // 確保資料存在 (若點擊圖表節點，可能資料還沒 fetch)
+    const data = await getIngredientData(name);
 
     if (data) {
+        // 1. 填寫標題與筆記
         document.getElementById('ingredientTitle').innerHTML = name + (data.enName ? ` <small style="color:#888;">${data.enName}</small>` : '');
         const notes = document.getElementById('notesContainer');
         notes.innerHTML = '';
-        
         for (const [k, label] of Object.entries(noteLabels)) {
             if (data.meta && data.meta[k]) {
                 notes.innerHTML += `<div class="note-item"><span class="note-label">${label}</span>${data.meta[k]}</div>`;
             }
         }
 
+        // 2. 填寫列表 (保留條列式)
         const list = document.getElementById('pairingList');
         const header = document.getElementById('pairingHeader');
         list.innerHTML = '';
+        const pairings = data.pairings || [];
         
-        if (data.pairings && data.pairings.length > 0) {
+        if (pairings.length > 0) {
             header.style.display = 'block';
-            data.pairings.forEach(item => {
+            pairings.forEach(item => {
                 const li = document.createElement('li');
                 li.textContent = item.name;
                 li.className = `weight-${item.weight}`;
@@ -221,35 +204,165 @@ function showIngredient(name, push = true) {
         } else {
             header.style.display = 'none';
         }
+
+        // 3. [新增] 渲染關係圖 (Plan B)
+        renderSingleGraph(name, pairings);
+
     } else {
+        // 查無資料
         document.getElementById('ingredientTitle').innerText = name;
         document.getElementById('notesContainer').innerHTML = '<div style="color:#999; padding:20px 0;"><i>資料庫中尚未建立此項目。</i></div>';
         document.getElementById('pairingHeader').style.display = 'none';
         document.getElementById('pairingList').innerHTML = '';
+        document.getElementById('singleGraph').innerHTML = ''; // 清空圖表
     }
 
     if (push) navigationStack.push({ page: 'ingredient', data: name });
 }
+
+// [新增] 方案 B 的圖表繪製邏輯
+function renderSingleGraph(centerName, pairings) {
+    const container = document.getElementById('singleGraph');
+    if (!singleChart) singleChart = echarts.init(container);
+
+    // 準備節點與連線
+    // 中心點
+    let nodes = [{
+        name: centerName,
+        symbolSize: 40,
+        itemStyle: { color: '#8C9C5E' },
+        label: { show: true, fontWeight: 'bold' }
+    }];
+    let links = [];
+
+    // 周圍點 (取前 15 個權重最高的，避免圖太亂)
+    const topPairings = pairings.sort((a,b) => b.weight - a.weight).slice(0, 15);
+    
+    topPairings.forEach(p => {
+        nodes.push({
+            name: p.name,
+            symbolSize: p.weight === 3 ? 30 : (p.weight === 2 ? 25 : 15),
+            itemStyle: { color: '#c4a986' },
+            label: { show: true }
+        });
+        links.push({
+            source: centerName,
+            target: p.name,
+            lineStyle: { width: p.weight, color: '#ddd' }
+        });
+    });
+
+    renderChart(singleChart, nodes, links);
+    
+    // 點擊事件：點擊圖上的圈圈也可跳轉
+    singleChart.off('click');
+    singleChart.on('click', function (params) {
+        if (params.dataType === 'node' && params.name !== centerName) {
+            showIngredient(params.name);
+        }
+    });
+}
+
+// [新增] 方案 A：風味橋接邏輯
+async function updateBridge() {
+    const valA = document.getElementById('bridgeInputA').value.trim();
+    const valB = document.getElementById('bridgeInputB').value.trim();
+    const resultText = document.getElementById('bridgeResultText');
+    const container = document.getElementById('bridgeGraph');
+    
+    if (!bridgeChart) bridgeChart = echarts.init(container);
+
+    let nodes = [];
+    let links = [];
+
+    // 1. 處理 A
+    if (valA) {
+        nodes.push({ name: valA, x: 100, y: 300, fixed: false, symbolSize: 50, itemStyle: { color: '#8C9C5E' }, label: {show:true, fontSize:16, fontWeight:'bold'} });
+    }
+
+    // 2. 處理 B
+    if (valB) {
+        nodes.push({ name: valB, x: 500, y: 300, fixed: false, symbolSize: 50, itemStyle: { color: '#3b6eac' }, label: {show:true, fontSize:16, fontWeight:'bold'} });
+    }
+
+    // 3. 處理交集 (當兩者都有輸入時)
+    if (valA && valB) {
+        const dataA = await getIngredientData(valA);
+        const dataB = await getIngredientData(valB);
+
+        if (dataA && dataB) {
+            const listA = (dataA.pairings || []).map(p => p.name);
+            const listB = (dataB.pairings || []).map(p => p.name);
+            
+            // 找出共同朋友
+            const common = listA.filter(n => listB.includes(n));
+            
+            if (common.length === 0) {
+                resultText.innerHTML = `找不到 <b>${valA}</b> 與 <b>${valB}</b> 的共同搭配。`;
+            } else {
+                resultText.innerHTML = `發現 ${common.length} 個共同連結！`;
+                
+                common.forEach(cName => {
+                    nodes.push({
+                        name: cName,
+                        symbolSize: 20,
+                        itemStyle: { color: '#eaddc5' }, // 米黃色
+                        label: { show: true, color: '#555' }
+                    });
+                    // 連接 A -> Common
+                    links.push({ source: valA, target: cName, lineStyle: { color: '#8C9C5E', opacity: 0.4 } });
+                    // 連接 B -> Common
+                    links.push({ source: valB, target: cName, lineStyle: { color: '#3b6eac', opacity: 0.4 } });
+                });
+            }
+        } else {
+            resultText.innerText = "其中一個食材不在資料庫中，無法分析。";
+        }
+    } else {
+        resultText.innerText = "請輸入兩個食材來查看連結。";
+    }
+
+    renderChart(bridgeChart, nodes, links);
+}
+
+// [新增] 通用繪圖函式 (ECharts Force Layout)
+function renderChart(chartInstance, nodes, links) {
+    const option = {
+        tooltip: {},
+        animationDurationUpdate: 1500,
+        animationEasingUpdate: 'quinticInOut',
+        series: [{
+            type: 'graph',
+            layout: 'force',
+            force: {
+                repulsion: 300,     // 節點之間的排斥力
+                edgeLength: 80,      // 連線長度
+                gravity: 0.1
+            },
+            data: nodes,
+            links: links,
+            roam: true,             // 允許滑鼠拖拉縮放
+            label: { show: true, position: 'right' },
+            lineStyle: { curveness: 0.1 }
+        }]
+    };
+    chartInstance.setOption(option);
+}
+
+// --- 導航與其他函式 (保持不變) ---
 
 function goBack() {
     if (navigationStack.length > 1) {
         navigationStack.pop(); 
         const prev = navigationStack[navigationStack.length - 1]; 
         
-        if (prev.page === 'home') {
-            resetApp();
-        } 
-        else if (prev.page === 'ingredient') {
-            showIngredient(prev.data, false);
-        }
+        if (prev.page === 'home') resetApp();
+        else if (prev.page === 'ingredient') showIngredient(prev.data, false);
         else if (prev.page === 'search_results') {
-            // [關鍵] 如果上一頁是搜尋結果，重新觸發搜尋來顯示列表
             document.getElementById('searchInput').value = prev.data;
             triggerSearch(prev.data);
         }
-        else {
-            switchPage(prev.page, false);
-        }
+        else switchPage(prev.page, false);
     } else {
         resetApp();
     }
@@ -262,14 +375,13 @@ function resetApp() {
     
     document.getElementById('searchInput').value = ''; 
     document.getElementById('ingredientResult').style.display = 'none'; 
-    document.getElementById('suggestionList').style.display = 'none'; // 隱藏建議列表
+    document.getElementById('suggestionList').style.display = 'none'; 
     document.getElementById('emptyState').style.display = 'block'; 
     
     document.getElementById('sidebar').classList.remove('active');
     document.querySelector('.sidebar-overlay').classList.remove('active');
 }
 
-// 渲染食譜與國家功能保持不變
 function renderOnlineRecipes() {
     const container = document.getElementById('recipeListContainer');
     container.innerHTML = '';
@@ -301,7 +413,6 @@ function renderCuisines() {
         let top = (c.pairings || []).sort((a,b)=>b.weight-a.weight).slice(0,4).map(p=>p.name).join('、');
         div.innerHTML = `<div>${c.name}</div><div style="font-size:12px;color:#666;margin-top:5px;">${top}...</div>`;
         div.onclick = () => { 
-            // 點擊國家分類，視為一種特殊的搜尋
             navigationStack = [{ page: 'home', data: null }];
             showIngredient(c.name, true); 
         }; 
