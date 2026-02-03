@@ -92,7 +92,13 @@ document.addEventListener('DOMContentLoaded', async () => {
     // 4. 狀態更新
     if (Object.keys(flavorDB).length > 0) {
         emptyState.innerHTML = '資料庫就緒，輸入關鍵字搜尋 (例如: A, 羊, 義...)';
-        if(errorLog.length > 0) emptyState.innerHTML += `<br><span style="color:red">部分載入失敗</span>`;
+       if(errorLog.length > 0) {
+    emptyState.innerHTML += `<br><div style="color:red; font-size:14px; margin-top:10px; background:#fff0f0; padding:10px; border-radius:5px;">
+        <strong>以下檔案讀取失敗：</strong><br>
+        ${errorLog.map(e => `❌ ${e}`).join('<br>')}
+        <br><span style="font-size:12px; color:#666;">(請檢查 data/ingredients/ 資料夾中是否有這些檔案，且檔名完全一致)</span>
+    </div>`;
+}
     } else {
         emptyState.innerHTML = '無法讀取資料庫';
     }
