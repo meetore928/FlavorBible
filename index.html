@@ -22,6 +22,7 @@
     <div class="sidebar-overlay" onclick="toggleMenu()"></div>
     <div class="sidebar" id="sidebar">
         <a class="menu-item" onclick="switchPage('search')"><i class="fas fa-search"></i> 食材搜尋</a>
+        <a class="menu-item" onclick="switchPage('library')"><i class="fas fa-th-list"></i> 食材庫</a>
         <a class="menu-item" onclick="switchPage('bridge')"><i class="fas fa-project-diagram"></i> 風味橋接</a>
         <a class="menu-item" onclick="switchPage('cuisines')"><i class="fas fa-globe-asia"></i> 世界風味</a>
         <a class="menu-item" onclick="switchPage('recipes')"><i class="fas fa-book-open"></i> 我的食譜庫</a>
@@ -35,6 +36,8 @@
                 <button class="search-btn" onclick="triggerSearch()"><i class="fas fa-search"></i></button>
             </div>
             
+            <div id="suggestionList" class="suggestion-grid" style="display:none;"></div>
+
             <div id="ingredientResult" style="display:none;">
                 <div id="ingredientTitle" class="ingredient-title"></div>
                 
@@ -48,6 +51,14 @@
             <div id="emptyState" style="text-align:center; color:#999; margin-top:50px;">
                 正在連線至 GitHub 資料庫...
             </div>
+        </div>
+
+        <div id="page-library" class="page-section">
+            <h2 style="text-align:center; color:var(--title-color); margin-bottom: 20px;">
+                現存食材庫 <small id="libraryCount" style="font-size:16px; color:#888; font-weight:normal;"></small>
+            </h2>
+            <div id="libraryGrid" class="suggestion-grid">
+                </div>
         </div>
 
         <div id="page-bridge" class="page-section">
