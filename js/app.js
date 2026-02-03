@@ -21,6 +21,7 @@ let navigationStack = [{ page: 'home', data: null }];
 document.addEventListener('DOMContentLoaded', async () => {
     const emptyState = document.getElementById('emptyState');
     const searchPage = document.getElementById('page-search');
+    const searchInput = document.getElementById('searchInput'); // 獲取輸入框
     let errorLog = []; 
 
     // 動態建立"搜尋建議列表"
@@ -34,12 +35,20 @@ document.addEventListener('DOMContentLoaded', async () => {
     const style = document.createElement('style');
     style.innerHTML = `
         .suggestion-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 12px; margin-bottom: 30px; }
-        .suggestion-item { background: #fff; border: 1px solid #e0e0e0; padding: 15px 10px; text-align: center; cursor: pointer; border-radius: 6px; transition: all 0.2s ease; box-shadow: 0 2px 4px rgba(0,0,0,0.02); }
+        .suggestion-item { background: #fff; border: 1px solid #e0e0e0; padding: 15px 10px; text-align: center; cursor: pointer; border-radius: 6px; transition: all 0.2s ease; box-shadow: 0 2px 4px rgba(0,0,0,0.02); position: relative; overflow: hidden; }
         .suggestion-item:hover { border-color: var(--title-color); transform: translateY(-3px); box-shadow: 0 4px 10px rgba(0,0,0,0.1); }
         .suggestion-name { font-weight: 900; color: #333; font-size: 18px; }
         .suggestion-en { display: block; font-size: 13px; color: #888; margin-top: 5px; font-family: sans-serif; }
+        .typo-badge { position: absolute; top: 2px; right: 2px; font-size: 10px; background: #eee; color: #666; padding: 2px 4px; border-radius: 4px; }
     `;
     document.head.appendChild(style);
+
+    // [新增] 綁定即時輸入事件，解決"打出杏不會出現"的問題
+    if (searchInput) {
+        searchInput.addEventListener('input', (e) => {
+            triggerSearch(e.target.value);
+        });
+    }
 
     // 1. 載入食材清單
     try {
@@ -126,42 +135,132 @@ async function getIngredientData(name) {
     return null;
 }
 
-// --- 核心功能 ---
+// --- [新增] 演算法工具：計算字串編輯距離 (Levenshtein Distance) ---
+function getEditDistance(a, b) {
+    if (a.length === 0) return b.length;
+    if (b.length === 0) return a.length;
+
+    const matrix = [];
+
+    // 初始化第一列和第一行
+    for (let i = 0; i <= b.length; i++) matrix[i] = [i];
+    for (let j = 0; j <= a.length; j++) matrix[0][j] = j;
+
+    for (let i = 1; i <= b.length; i++) {
+        for (let j = 1; j <= a.length; j++) {
+            if (b.charAt(i - 1) === a.charAt(j - 1)) {
+                matrix[i][j] = matrix[i - 1][j - 1];
+            } else {
+                matrix[i][j] = Math.min(
+                    matrix[i - 1][j - 1] + 1, // 替換
+                    Math.min(
+                        matrix[i][j - 1] + 1, // 插入
+                        matrix[i - 1][j] + 1  // 刪除
+                    )
+                );
+            }
+        }
+    }
+    return matrix[b.length][a.length];
+}
+
+// --- 核心功能 (已修改為包含容錯與排序) ---
 
 function triggerSearch(forcedQuery = null) {
-    const rawInput = document.getElementById('searchInput').value;
-    const query = (forcedQuery !== null ? forcedQuery : rawInput).trim();
-    if (!query) return;
+    // 如果沒有傳入參數，則讀取輸入框
+    const rawInput = forcedQuery !== null ? forcedQuery : document.getElementById('searchInput').value;
+    const query = rawInput.trim();
+    const suggestionList = document.getElementById('suggestionList');
 
-    // 清空與重置
+    if (!query) {
+        // 如果清空了，隱藏建議列表，顯示空狀態
+        suggestionList.style.display = 'none';
+        document.getElementById('emptyState').style.display = 'block';
+        document.getElementById('ingredientResult').style.display = 'none';
+        return;
+    }
+
+    // 清空目前顯示
     document.getElementById('ingredientResult').style.display = 'none';
     document.getElementById('emptyState').style.display = 'none';
-    const suggestionList = document.getElementById('suggestionList');
     suggestionList.innerHTML = '';
     suggestionList.className = 'suggestion-grid'; 
 
     const lowerQ = query.toLowerCase();
     const matches = [];
 
+    // 遍歷資料庫進行比對
     for (const [key, data] of Object.entries(flavorDB)) {
-        const nameMatch = key.toLowerCase().startsWith(lowerQ);
-        const enMatch = data.enName && data.enName.toLowerCase().startsWith(lowerQ);
-        if (nameMatch || enMatch) matches.push({ name: key, enName: data.enName || '' });
+        const name = key;
+        const enName = (data.enName || '').toLowerCase();
+        const lowerName = name.toLowerCase();
+
+        let score = 0;
+        let isTypo = false;
+
+        // 1. 精確比對 (優先級最高)
+        if (lowerName === lowerQ || enName === lowerQ) score += 100;
+
+        // 2. 開頭符合 (優先級高)
+        else if (lowerName.startsWith(lowerQ) || enName.startsWith(lowerQ)) score += 50;
+
+        // 3. 內容包含 (優先級中 - 解決"杏"找不到"杏仁"的問題)
+        else if (lowerName.includes(lowerQ) || enName.includes(lowerQ)) score += 30;
+
+        // 4. 容錯搜尋 (優先級低 - 解決打錯字)
+        else {
+            // 計算編輯距離 (僅針對 3 個字以上的查詢，避免短字誤判)
+            if (query.length >= 3) {
+                const distEn = getEditDistance(enName, lowerQ);
+                // 允許誤差：長度越長允許越多錯誤，基本允許 1-2 個錯字
+                const threshold = query.length > 6 ? 2 : 1;
+                
+                if (distEn <= threshold) {
+                    score += 10;
+                    isTypo = true;
+                }
+            }
+        }
+
+        if (score > 0) {
+            matches.push({ 
+                name: key, 
+                enName: data.enName || '', 
+                score: score,
+                isTypo: isTypo 
+            });
+        }
     }
 
     if (matches.length === 0) {
         suggestionList.style.display = 'none';
-        showIngredient(query, true); 
+        // 如果完全沒有建議，可以選擇顯示"找不到"或嘗試顯示最接近的結果
+        // 這裡保持原樣，不顯示
     } else {
         suggestionList.style.display = 'grid';
-        matches.sort((a, b) => a.name.length - b.name.length);
+        
+        // 排序：分數高 > 字串長度短 (越短通常越精準)
+        matches.sort((a, b) => {
+            if (b.score !== a.score) return b.score - a.score;
+            return a.name.length - b.name.length;
+        });
+
         matches.forEach(m => {
             const div = document.createElement('div');
             div.className = 'suggestion-item';
-            div.innerHTML = `<div class="suggestion-name">${m.name}</div>${m.enName ? `<div class="suggestion-en">${m.enName}</div>` : ''}`;
+            
+            let typoBadge = m.isTypo ? `<span class="typo-badge">您是找...?</span>` : '';
+            
+            div.innerHTML = `
+                ${typoBadge}
+                <div class="suggestion-name">${m.name}</div>
+                ${m.enName ? `<div class="suggestion-en">${m.enName}</div>` : ''}
+            `;
             div.onclick = () => showIngredient(m.name);
             suggestionList.appendChild(div);
         });
+        
+        // 如果是按 Enter 觸發的 (forcedQuery 為 null)，且有完全匹配的，更新導航堆疊
         if (forcedQuery === null) navigationStack = [{ page: 'search_results', data: query }];
     }
 }
