@@ -14,8 +14,6 @@
     { "name": "八角", "weight": 1 },
     { "name": "松露", "weight": 1 },
     { "name": "香莢蘭", "weight": 1 }
-  ]
-}
   ],
-  "composition": [ ]
+  "composition": []
 }
