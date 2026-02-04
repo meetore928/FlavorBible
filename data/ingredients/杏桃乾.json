@@ -1,0 +1,38 @@
+{
+  "name": "杏桃乾",
+  "enName": "Apricots, Dried",
+  "meta": {
+    "techniques": "水煮/燉煮",
+    "affinities": "杏桃乾＋櫻桃乾＋薑＋柳橙＋開心果",
+    "notes": "檸檬：檸檬汁、碎檸檬皮、柳橙：橙汁、碎橙皮、酒、甜白酒（如：慕斯卡白酒）"
+  },
+  "pairings": [
+    { "name": "多香果", "weight": 1 },
+    { "name": "櫻桃乾", "weight": 1 },
+    { "name": "肉桂", "weight": 1 },
+    { "name": "醋栗", "weight": 1 },
+    { "name": "卡士達", "weight": 1 },
+    { "name": "法國吐司", "weight": 1 },
+    { "name": "薑", "weight": 1 },
+    { "name": "榛果", "weight": 1 },
+    { "name": "蜂蜜", "weight": 1 },
+    { "name": "冰淇淋", "weight": 1 },
+    { "name": "檸檬", "weight": 1 },
+    { "name": "馬德拉白酒", "weight": 1 },
+    { "name": "摩洛哥料理", "weight": 1 },
+    { "name": "柳橙", "weight": 1 },
+    { "name": "鬆餅", "weight": 1 },
+    { "name": "可麗餅", "weight": 1 },
+    { "name": "開心果", "weight": 1 },
+    { "name": "豬肉", "weight": 1 },
+    { "name": "黑李乾", "weight": 1 },
+    { "name": "南瓜籽", "weight": 1 },
+    { "name": "葡萄乾", "weight": 1 },
+    { "name": "米布丁", "weight": 1 },
+    { "name": "糖", "weight": 1 },
+    { "name": "羅望子醬", "weight": 1 },
+    { "name": "香莢蘭", "weight": 1 },
+    { "name": "酒", "weight": 1 },
+    { "name": "甜白酒", "weight": 1 }
+  ]
+}

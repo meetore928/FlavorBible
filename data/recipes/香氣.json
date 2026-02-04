@@ -1,0 +1,21 @@
+{
+  "name": "香氣",
+  "enName": "Aroma",
+  "meta": {
+    "tips": "若想增進菜餚香氣，可以運用："
+  },
+  "pairings": [
+    { "name": "巧克力", "weight": 1 },
+    { "name": "肉桂", "weight": 1 },
+    { "name": "香草", "weight": 1 },
+    { "name": "鳳梨", "weight": 1 },
+    { "name": "真空烹調法", "weight": 1 },
+    { "name": "香料", "weight": 1 },
+    { "name": "八角", "weight": 1 },
+    { "name": "松露", "weight": 1 },
+    { "name": "香莢蘭", "weight": 1 }
+  ]
+}
+  ],
+  "composition": [ ]
+}

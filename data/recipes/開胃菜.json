@@ -1,0 +1,19 @@
+{
+  "name": "開胃菜",
+  "enName": "Appetizers",
+  "meta": {
+    "tips": "鹹味能刺激食慾。餐點中的開胃菜分量不要太大，以免過早滿足食欲。",
+    "notes": "宜佐以稠度較低的酒"
+  },
+  "pairings": [
+    { "name": "香檳", "weight": 2 },
+    { "name": "白酒", "weight": 1 },
+    { "name": "雪莉酒", "weight": 1 }
+  ],
+  "composition": [
+    { "name": "酸豆", "qty": "1 湯匙" },
+    { "name": "燻鮭魚", "qty": "50g" },
+    { "name": "洋蔥", "qty": "1/4 顆 (切碎)" },
+    { "name": "酸奶油", "qty": "適量" }
+  ]
+}

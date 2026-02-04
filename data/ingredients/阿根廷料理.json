@@ -1,0 +1,14 @@
+{
+  "name": "阿根廷料理",
+  "enName": "Argentinian Cuisine",
+  "meta": {
+    "tips": "同時參見南美洲料理"
+  },
+  "pairings": [
+    { "name": "牛肉", "weight": 1 },
+    { "name": "玉米", "weight": 1 },
+    { "name": "桃子", "weight": 1 },
+    { "name": "南瓜", "weight": 1 },
+    { "name": "番薯", "weight": 1 }
+  ]
+}

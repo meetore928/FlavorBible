@@ -290,7 +290,50 @@ async function showIngredient(name, push = true) {
         } else {
             header.style.display = 'none';
         }
+// --- [修改建議] 在 showIngredient 函式內新增此段邏輯 ---
 
+// ... (現有的 pairings 處理代碼) ...
+
+// 2.5 新增：處理食譜配比 (Composition)
+// 尋找 HTML 中是否預留了顯示配比的位置，或者直接插入在 pairings 上方
+let recipeSection = document.getElementById('recipeSection');
+if (!recipeSection) {
+    // 如果 HTML 沒有預留，我們動態建立一個插入點
+    recipeSection = document.createElement('div');
+    recipeSection.id = 'recipeSection';
+    recipeSection.style.marginBottom = '20px';
+    const notesContainer = document.getElementById('notesContainer');
+    notesContainer.parentNode.insertBefore(recipeSection, document.getElementById('pairingHeader'));
+}
+
+recipeSection.innerHTML = ''; // 清空舊資料
+
+if (data.composition && data.composition.length > 0) {
+    recipeSection.innerHTML = '<div class="pairing-header">經典配方比例：</div>';
+    const ul = document.createElement('ul');
+    ul.style.listStyle = 'none'; // 保持乾淨樣式
+    ul.style.padding = '0';
+    
+    data.composition.forEach(item => {
+        const li = document.createElement('li');
+        li.style.fontSize = '16px';
+        li.style.marginBottom = '5px';
+        li.style.color = '#555';
+        
+        // 製作可點擊的連結：使用 showIngredient 跳轉
+        // 格式：[食材名]: [份量]
+        li.innerHTML = `
+            <span style="cursor:pointer; text-decoration:underline; color:#3b6eac; font-weight:bold;" 
+                  onclick="showIngredient('${item.name}')">
+                  ${item.name}
+            </span> 
+            : ${item.qty}`;
+            
+        ul.appendChild(li);
+    });
+    recipeSection.appendChild(ul);
+}
+// -----------------------------------------------------
         // 3. 渲染關係圖
         renderSingleGraph(name, pairings);
 

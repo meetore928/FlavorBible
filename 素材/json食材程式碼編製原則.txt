@@ -1,0 +1,29 @@
+{
+  "name": "紅木籽",
+  "enName": "Achiote Seeds",
+  "meta": {
+    "affinities": "紅木籽 + 豬肉 + 酸橙",
+    "notes": "柑橘類(如:酸橙)、野禽類(如:鴨、鵪鶉)、墨西哥料理(尤以尤卡坦油為佳)、貝蝦蟹類(如:龍蝦、蝦)"
+  },
+  "pairings": [
+    { "name": "牛肉", "weight": 1 },
+    { "name": "雞肉", "weight": 1 },
+    { "name": "辣椒", "weight": 1 },
+    { "name": "柑橘類", "weight": 1 },
+    { "name": "魚", "weight": 1 },
+    { "name": "野禽類", "weight": 1 },
+    { "name": "蒜頭", "weight": 1 },
+    { "name": "墨西哥料理", "weight": 2 },
+    { "name": "豬肉", "weight": 2 },
+    { "name": "貝蝦蟹類", "weight": 1 },
+    { "name": "蝦", "weight": 1 }
+  ]
+}
+
+以下為原則
+pairings不要有括號，將食材名後括號及其內容刪除，把括號內容以及括號前食材名複製到notes分類裡以「、」排列
+食材名如為兩樣並以「與、和、或」等等區隔，則將其分開做為兩個單獨食材名編列
+meta使用下列編號，沒有使用到的編號不用出現
+
+meta: { season: "季節", taste: "味道", function: "功能質性", volume: "分量感",intensity: "風味強度", techniques: "調理方式", tips: "小秘訣",
+ affinities: "對味組合", avoid: "避免", notes: "心得筆記"},
