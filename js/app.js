@@ -1,202 +1,191 @@
 // --- 核心資料 ---
-let flavorDB = {};     // 總資料庫
-let cuisineList = [];  // 國家清單
+let flavorDB = {};     
+let cuisineList = [];  
 let onlineRecipes = [];
-
-// ECharts 實例變數
 let singleChart = null;
 let bridgeChart = null;
+let navigationStack = [{ page: 'home', data: null }];
 
-// 筆記標籤對照
 const noteLabels = { 
     season: "季節", taste: "味道", tips: "小秘訣", 
     affinities: "對味組合", notes: "筆記", 
     function: "功能質性", volume: "分量感", intensity: "風味強度", techniques: "調理方式", avoid: "避免"
 };
 
-// 導航堆疊
-let navigationStack = [{ page: 'home', data: null }];
-
-// --- 輔助：顯示載入狀態 ---
+// --- [新功能] 安全的狀態更新 ---
 function updateStatus(msg, isError = false) {
     const el = document.getElementById('emptyState');
     if (el) {
         el.innerHTML = msg;
-        if (isError) el.style.color = 'red';
+        if (isError) el.style.color = '#d9534f'; // 紅色警告
     }
     console.log(`[System] ${msg}`);
 }
 
 // --- 初始化 ---
 document.addEventListener('DOMContentLoaded', async () => {
-    const emptyState = document.getElementById('emptyState');
+    
+    // 1. 設定一個超時炸彈，如果 3 秒後還在"正在讀取"，就強制顯示錯誤
+    const timeoutBomb = setTimeout(() => {
+        const el = document.getElementById('emptyState');
+        if (el && el.innerText.includes('正在')) {
+            updateStatus(`
+                <h3>讀取逾時 (Timeout)</h3>
+                <p>系統讀取檔案超過 3 秒沒有回應。</p>
+                <p>可能原因：</p>
+                <ul style="text-align:left; display:inline-block;">
+                    <li><b>data/list.json</b> 檔案不存在。</li>
+                    <li>檔案路徑錯誤 (例如資料夾名稱大小寫不符)。</li>
+                    <li>JSON 內容格式錯誤。</li>
+                </ul>
+            `, true);
+        }
+    }, 3000);
+
     const searchInput = document.getElementById('searchInput'); 
     let errorLog = []; 
 
-    // 0. 全局錯誤捕捉
     try {
-        if (searchInput) {
-            searchInput.addEventListener('input', (e) => {
-                triggerSearch(e.target.value);
-            });
+        if (searchInput) searchInput.addEventListener('input', (e) => triggerSearch(e.target.value));
+
+        // ----------------------------------------------------
+        // 步驟 1: 讀取 list.json (最關鍵的一步)
+        // ----------------------------------------------------
+        updateStatus("步驟 1/3: 正在讀取 list.json...");
+        
+        let listRes;
+        try {
+            listRes = await fetch('data/list.json');
+        } catch (netErr) {
+            throw new Error("無法連接到 data/list.json (Network Error)");
         }
 
-        // 1. 載入食材清單
-        updateStatus("正在讀取食材清單 (list.json)...");
-        try {
-            const listRes = await fetch('data/list.json');
-            if (!listRes.ok) throw new Error(`找不到 data/list.json (404)`);
-            const ingList = await listRes.json();
-            await loadBatchIngredients(ingList, errorLog);
-        } catch (e) { 
-            errorLog.push(`list.json 錯誤: ${e.message}`); 
-            console.error(e);
+        if (!listRes.ok) throw new Error(`找不到 data/list.json (HTTP ${listRes.status})`);
+        
+        // 檢查是不是讀到了 HTML 錯誤頁面 (常見於 GitHub Pages 404)
+        const contentType = listRes.headers.get("content-type");
+        if (contentType && contentType.includes("text/html")) {
+            throw new Error("data/list.json 回傳了 HTML 網頁，這代表路徑錯誤或檔案不存在。");
         }
 
-        // 2. 載入國家
-        updateStatus("正在讀取國家清單...");
+        const ingList = await listRes.json();
+        
+        // ----------------------------------------------------
+        // 步驟 2: 批次讀取食材
+        // ----------------------------------------------------
+        updateStatus(`步驟 2/3: 正在載入 ${ingList.length} 個項目...`);
+        await loadBatchIngredients(ingList, errorLog);
+
+        // ----------------------------------------------------
+        // 步驟 3: 讀取其他清單 (非必要，失敗可忽略)
+        // ----------------------------------------------------
         try {
-            const cuisineRes = await fetch('data/cuisines_list.json');
-            if (cuisineRes.ok) {
-                const cListNames = await cuisineRes.json();
-                await loadBatchIngredients(cListNames, errorLog);
-                cuisineList = cListNames.filter(n => flavorDB[n]).map(n => flavorDB[n]);
+            const cRes = await fetch('data/cuisines_list.json');
+            if (cRes.ok) {
+                const cList = await cRes.json();
+                await loadBatchIngredients(cList, errorLog);
+                cuisineList = cList.filter(n => flavorDB[n]).map(n => flavorDB[n]);
             }
-        } catch (e) { console.warn("跳過國家載入", e); }
+        } catch(e) { console.warn("國家清單讀取略過"); }
 
-        // 3. 載入食譜
-        updateStatus("正在讀取食譜庫...");
         try {
-            const recListRes = await fetch('data/recipes_list.json');
-            if (recListRes.ok) {
-                const recList = await recListRes.json();
-                // 逐一載入，避免 Promise.all 因為一個壞檔而全部卡死
-                for (const n of recList) {
-                    try {
-                        let r = await fetch(`data/recipes/${n}.json`);
-                        if(!r.ok) r = await fetch(`data/ingredients/${n}.json`); 
-                        
-                        if(r.ok) {
-                            // 這裡加強了 JSON 解析的保護
-                            const text = await r.text();
-                            try {
-                                const data = JSON.parse(text);
-                                flavorDB[data.name] = data; 
-                                onlineRecipes.push(data);
-                            } catch (jsonErr) {
-                                errorLog.push(`檔案格式錯誤 (JSON Error): ${n}.json`);
-                            }
-                        }
-                    } catch(err){
-                        console.error(`食譜 ${n} 載入失敗`, err);
-                    }
+            const rRes = await fetch('data/recipes_list.json');
+            if (rRes.ok) {
+                const rList = await rRes.json();
+                // 這裡改回用簡單迴圈，避免卡死
+                for(const rName of rList) {
+                    await loadSingleData(rName, true); // true = 是食譜
                 }
             }
-        } catch (e) {
-            console.warn("跳過食譜載入或 recipes_list.json 不存在");
-        }
+        } catch(e) { console.warn("食譜清單讀取略過"); }
 
-        // 4. 最終狀態檢查
+        // ----------------------------------------------------
+        // 完成
+        // ----------------------------------------------------
+        clearTimeout(timeoutBomb); // 解除炸彈
+
         if (Object.keys(flavorDB).length > 0) {
-            if(emptyState) {
-                emptyState.style.color = '#999';
-                emptyState.innerHTML = '資料庫就緒，輸入關鍵字搜尋 (例如: A, 羊, 義...)';
-            }
-            
-            // 如果有錯誤，顯示在下方供除錯
-            if(errorLog.length > 0 && emptyState) {
-                emptyState.innerHTML += `<br><div style="color:red; font-size:12px; margin-top:10px; text-align:left; background:#fff0f0; padding:10px;">
-                    <strong>部分檔案讀取失敗：</strong><br>${errorLog.join('<br>')}
-                </div>`;
+            updateStatus('資料庫就緒，請輸入關鍵字搜尋', false);
+            const el = document.getElementById('emptyState');
+            if(el) el.style.color = '#999';
+
+            if(errorLog.length > 0) {
+                // 顯示輕微錯誤但讓程式繼續跑
+                console.warn("讀取錯誤:", errorLog);
+                el.innerHTML += `<br><small style="color:orange">有 ${errorLog.length} 個檔案讀取失敗，請看 Console。</small>`;
             }
         } else {
-            updateStatus('無法讀取任何資料庫內容，請檢查 data 資料夾設定', true);
+            updateStatus('list.json 雖然讀到了，但資料庫是空的。', true);
         }
 
         renderCuisines();
         renderOnlineRecipes();
         
-        // 初始化 ECharts
         window.addEventListener('resize', () => {
             if(singleChart) singleChart.resize();
             if(bridgeChart) bridgeChart.resize();
-            if(singleChart && currentSingleData) {
-                renderSingleGraph(currentSingleData.name, currentSingleData.pairings);
-            }
-            if(bridgeChart) updateBridge();
         });
 
     } catch (criticalError) {
-        // 這是最重要的部分：如果程式崩潰，顯示原因
-        updateStatus(`程式發生嚴重錯誤：<br>${criticalError.message}<br><small>請檢查 Console 獲取詳細資訊</small>`, true);
-        console.error("Critical System Error:", criticalError);
+        clearTimeout(timeoutBomb);
+        updateStatus(`嚴重錯誤：${criticalError.message}`, true);
+        console.error(criticalError);
     }
 });
 
-async function loadBatchIngredients(names, errorLog) {
-    // 使用 for...of 迴圈代替 Promise.all 避免並發錯誤難以追蹤
-    for (const name of names) {
-        if (flavorDB[name]) continue;
-        try {
-            const res = await fetch(`data/ingredients/${name}.json`);
-            if(!res.ok) {
-                // 嘗試從 recipes 資料夾找找看
-                 const res2 = await fetch(`data/recipes/${name}.json`);
-                 if(res2.ok) {
-                     const txt = await res2.text();
-                     flavorDB[name] = JSON.parse(txt);
-                     continue;
-                 }
-                 throw new Error("404 Not Found");
-            }
-            const txt = await res.text();
-            flavorDB[name] = JSON.parse(txt);
-        } catch (err) { 
-            // 這裡不紀錄每一個 404，避免錯誤訊息洗版，只記錄嚴重的
-        }
-    }
-}
-
-// 輔助：確保取得食材資料
-async function getIngredientData(name) {
+// 統一的讀取函式
+async function loadSingleData(name, isRecipe = false) {
     if (flavorDB[name]) return flavorDB[name];
-    try {
-        let res = await fetch(`data/ingredients/${name}.json`);
-        if(!res.ok) res = await fetch(`data/recipes/${name}.json`);
-        
-        if (res.ok) {
-            const data = await res.json();
-            flavorDB[name] = data;
-            return data;
-        }
-    } catch(e) {}
+    
+    // 定義嘗試路徑
+    const paths = [
+        `data/ingredients/${name}.json`,
+        `data/recipes/${name}.json`
+    ];
+
+    for (const path of paths) {
+        try {
+            const res = await fetch(path);
+            if (res.ok) {
+                const txt = await res.text();
+                try {
+                    const data = JSON.parse(txt);
+                    flavorDB[name] = data;
+                    if(isRecipe) onlineRecipes.push(data);
+                    return data;
+                } catch(e) {
+                    console.error(`JSON 格式錯誤: ${path}`);
+                }
+            }
+        } catch(e) { }
+    }
     return null;
 }
 
-// --- 演算法工具：Levenshtein Distance (模糊搜尋) ---
-function getEditDistance(a, b) {
-    if (a.length === 0) return b.length;
-    if (b.length === 0) return a.length;
-    const matrix = [];
-    for (let i = 0; i <= b.length; i++) matrix[i] = [i];
-    for (let j = 0; j <= a.length; j++) matrix[0][j] = j;
-    for (let i = 1; i <= b.length; i++) {
-        for (let j = 1; j <= a.length; j++) {
-            if (b.charAt(i - 1) === a.charAt(j - 1)) {
-                matrix[i][j] = matrix[i - 1][j - 1];
-            } else {
-                matrix[i][j] = Math.min(
-                    matrix[i - 1][j - 1] + 1,
-                    matrix[i][j - 1] + 1,
-                    matrix[i - 1][j] + 1
-                );
-            }
-        }
+async function loadBatchIngredients(names, errorLog) {
+    for (const name of names) {
+        const res = await loadSingleData(name);
+        if(!res) errorLog.push(name);
     }
-    return matrix[b.length][a.length];
 }
 
-// --- 核心功能 ---
+// 輔助：確保取得資料 (給搜尋用)
+async function getIngredientData(name) {
+    if (flavorDB[name]) return flavorDB[name];
+    return await loadSingleData(name);
+}
+
+// --- 以下為 UI 邏輯 (不需變更) ---
+
+function getEditDistance(a, b) {
+    if(a.length===0)return b.length; if(b.length===0)return a.length;
+    const matrix=[]; for(let i=0;i<=b.length;i++)matrix[i]=[i]; for(let j=0;j<=a.length;j++)matrix[0][j]=j;
+    for(let i=1;i<=b.length;i++){for(let j=1;j<=a.length;j++){
+        if(b.charAt(i-1)===a.charAt(j-1))matrix[i][j]=matrix[i-1][j-1];
+        else matrix[i][j]=Math.min(matrix[i-1][j-1]+1,matrix[i][j-1]+1,matrix[i-1][j]+1);
+    }} return matrix[b.length][a.length];
+}
+
 function triggerSearch(forcedQuery = null) {
     const rawInput = forcedQuery !== null ? forcedQuery : document.getElementById('searchInput').value;
     const query = rawInput.trim();
@@ -215,11 +204,7 @@ function triggerSearch(forcedQuery = null) {
     const es = document.getElementById('emptyState');
     if(ir) ir.style.display = 'none';
     if(es) es.style.display = 'none';
-    
-    if(suggestionList) {
-        suggestionList.innerHTML = '';
-        suggestionList.style.display = 'none';
-    }
+    if(suggestionList) { suggestionList.innerHTML = ''; suggestionList.style.display = 'none'; }
 
     const lowerQ = query.toLowerCase();
     const matches = [];
@@ -228,69 +213,39 @@ function triggerSearch(forcedQuery = null) {
         const name = key;
         const enName = (data.enName || '').toLowerCase();
         const lowerName = name.toLowerCase();
-
-        let score = 0;
-        let isTypo = false;
+        let score = 0, isTypo = false;
 
         if (lowerName === lowerQ || enName === lowerQ) score += 100;
         else if (lowerName.startsWith(lowerQ) || enName.startsWith(lowerQ)) score += 50;
         else if (lowerName.includes(lowerQ) || enName.includes(lowerQ)) score += 30;
-        else {
-            if (query.length >= 3) {
-                const distEn = getEditDistance(enName, lowerQ);
-                const threshold = query.length > 6 ? 2 : 1;
-                if (distEn <= threshold) {
-                    score += 10;
-                    isTypo = true;
-                }
-            }
+        else if (query.length >= 3) {
+            const dist = getEditDistance(enName, lowerQ);
+            if (dist <= (query.length > 6 ? 2 : 1)) { score += 10; isTypo = true; }
         }
 
-        if (score > 0) {
-            matches.push({ 
-                name: key, 
-                enName: data.enName || '', 
-                score: score,
-                isTypo: isTypo 
-            });
-        }
+        if (score > 0) matches.push({ name: key, enName: data.enName||'', score, isTypo });
     }
 
     if (matches.length > 0 && suggestionList) {
         suggestionList.style.display = 'grid';
-        matches.sort((a, b) => {
-            if (b.score !== a.score) return b.score - a.score;
-            return a.name.length - b.name.length;
-        });
-
+        matches.sort((a,b)=>b.score!==a.score ? b.score-a.score : a.name.length-b.name.length);
         matches.forEach(m => {
             const div = document.createElement('div');
             div.className = 'suggestion-item';
-            let typoBadge = m.isTypo ? `<span class="typo-badge">您是找...?</span>` : '';
-            div.innerHTML = `
-                ${typoBadge}
-                <div class="suggestion-name">${m.name}</div>
-                ${m.enName ? `<div class="suggestion-en">${m.enName}</div>` : ''}
-            `;
+            div.innerHTML = `${m.isTypo?'<span class="typo-badge">?</span>':''} <div class="suggestion-name">${m.name}</div>${m.enName?`<div class="suggestion-en">${m.enName}</div>`:''}`;
             div.onclick = () => showIngredient(m.name);
             suggestionList.appendChild(div);
         });
     }
 }
 
-let currentSingleData = null;
-
 async function showIngredient(name, push = true) {
     document.querySelectorAll('.page-section').forEach(el => el.classList.remove('active'));
     document.getElementById('page-search').classList.add('active');
     
-    const sl = document.getElementById('suggestionList');
-    if(sl) sl.style.display = 'none';
-    const es = document.getElementById('emptyState');
-    if(es) es.style.display = 'none';
-    
-    const resultDiv = document.getElementById('ingredientResult');
-    resultDiv.style.display = 'block';
+    document.getElementById('suggestionList').style.display = 'none';
+    document.getElementById('emptyState').style.display = 'none';
+    document.getElementById('ingredientResult').style.display = 'block';
     
     document.getElementById('searchInput').value = name;
     
@@ -298,17 +253,14 @@ async function showIngredient(name, push = true) {
 
     if (data) {
         currentSingleData = { name: name, pairings: data.pairings };
-
         document.getElementById('ingredientTitle').innerHTML = name + (data.enName ? ` <small style="color:#888;">${data.enName}</small>` : '');
+        
         const notes = document.getElementById('notesContainer');
         notes.innerHTML = '';
         for (const [k, label] of Object.entries(noteLabels)) {
-            if (data.meta && data.meta[k]) {
-                notes.innerHTML += `<div class="note-item"><span class="note-label">${label}</span>${data.meta[k]}</div>`;
-            }
+            if (data.meta && data.meta[k]) notes.innerHTML += `<div class="note-item"><span class="note-label">${label}</span>${data.meta[k]}</div>`;
         }
 
-        // 處理食譜配比
         let recipeSection = document.getElementById('recipeSection');
         if (!recipeSection) {
             recipeSection = document.createElement('div');
@@ -317,26 +269,9 @@ async function showIngredient(name, push = true) {
             notes.parentNode.insertBefore(recipeSection, document.getElementById('pairingHeader'));
         }
         recipeSection.innerHTML = ''; 
-
         if (data.composition && data.composition.length > 0) {
-            recipeSection.innerHTML = '<div class="pairing-header" style="display:block;">經典配方比例：</div>';
-            const ul = document.createElement('ul');
-            ul.style.listStyle = 'none'; 
-            ul.style.padding = '0';
-            data.composition.forEach(item => {
-                const li = document.createElement('li');
-                li.style.fontSize = '16px';
-                li.style.marginBottom = '5px';
-                li.style.color = '#555';
-                li.innerHTML = `
-                    <span style="cursor:pointer; text-decoration:underline; color:#3b6eac; font-weight:bold;" 
-                          onclick="showIngredient('${item.name}')">
-                          ${item.name}
-                    </span> 
-                    : ${item.qty}`;
-                ul.appendChild(li);
-            });
-            recipeSection.appendChild(ul);
+            recipeSection.innerHTML = '<div class="pairing-header" style="display:block;">經典配方比例：</div><ul style="list-style:none;padding:0;">' + 
+            data.composition.map(i => `<li style="margin-bottom:5px;"><span style="cursor:pointer;text-decoration:underline;color:#3b6eac;font-weight:bold;" onclick="showIngredient('${i.name}')">${i.name}</span>: ${i.qty}</li>`).join('') + '</ul>';
         }
 
         const list = document.getElementById('pairingList');
@@ -353,27 +288,17 @@ async function showIngredient(name, push = true) {
                 li.onclick = () => showIngredient(item.name);
                 list.appendChild(li);
             });
-        } else {
-            if (!data.composition || data.composition.length === 0) {
-                 header.style.display = 'none';
-            }
-        }
-        renderSingleGraph(name, pairings);
+        } else if (!data.composition) header.style.display = 'none';
 
+        renderSingleGraph(name, pairings);
     } else {
-        currentSingleData = null;
         document.getElementById('ingredientTitle').innerText = name;
         document.getElementById('notesContainer').innerHTML = '<div style="color:#999; padding:20px 0;"><i>資料庫中尚未建立此項目。</i></div>';
-        document.getElementById('pairingHeader').style.display = 'none';
         document.getElementById('pairingList').innerHTML = '';
         document.getElementById('singleGraph').innerHTML = '';
-        const rs = document.getElementById('recipeSection');
-        if(rs) rs.innerHTML = '';
     }
 
-    if (push) {
-        navigationStack.push({ page: 'ingredient', data: name });
-    }
+    if (push) navigationStack.push({ page: 'ingredient', data: name });
 }
 
 function renderSingleGraph(centerName, pairings) {
@@ -381,235 +306,99 @@ function renderSingleGraph(centerName, pairings) {
     if(container.offsetWidth === 0) return;
     if (!singleChart) singleChart = echarts.init(container);
 
-    let nodes = [{
-        name: centerName,
-        symbolSize: 40,
-        itemStyle: { color: '#8C9C5E' },
-        label: { show: true, fontWeight: 'bold' }
-    }];
+    let nodes = [{ name: centerName, symbolSize: 40, itemStyle: { color: '#8C9C5E' }, label: { show: true, fontWeight: 'bold' } }];
     let links = [];
-
-    const topPairings = pairings.sort((a,b) => b.weight - a.weight).slice(0, 15);
-    topPairings.forEach(p => {
-        nodes.push({
-            name: p.name,
-            symbolSize: p.weight === 3 ? 30 : (p.weight === 2 ? 25 : 15),
-            itemStyle: { color: '#c4a986' },
-            label: { show: true }
-        });
-        links.push({
-            source: centerName,
-            target: p.name,
-            lineStyle: { width: p.weight, color: '#ddd' }
-        });
+    (pairings||[]).sort((a,b)=>b.weight-a.weight).slice(0,15).forEach(p=>{
+        nodes.push({ name: p.name, symbolSize: p.weight===3?30:(p.weight===2?25:15), itemStyle: { color: '#c4a986' }, label: { show: true } });
+        links.push({ source: centerName, target: p.name, lineStyle: { width: p.weight, color: '#ddd' } });
     });
-    renderChart(singleChart, nodes, links);
+    
+    singleChart.setOption({
+        series: [{ type: 'graph', layout: 'force', force: { repulsion: 200, edgeLength: 60 }, data: nodes, links: links, roam: true, label: {show:true} }]
+    });
     singleChart.off('click');
-    singleChart.on('click', function (params) {
-        if (params.dataType === 'node' && params.name !== centerName) {
-            showIngredient(params.name);
-        }
-    });
+    singleChart.on('click', p => { if(p.dataType==='node' && p.name!==centerName) showIngredient(p.name); });
 }
 
 async function updateBridge() {
     const valA = document.getElementById('bridgeInputA').value.trim();
     const valB = document.getElementById('bridgeInputB').value.trim();
-    const resultText = document.getElementById('bridgeResultText');
     const container = document.getElementById('bridgeGraph');
-    
     if(container.offsetWidth === 0 && (!valA && !valB)) return;
     if (!bridgeChart) bridgeChart = echarts.init(container);
+    
+    let nodes=[], links=[];
+    if(valA) nodes.push({name:valA, symbolSize:40, itemStyle:{color:'#8C9C5E'}, label:{show:true}});
+    if(valB) nodes.push({name:valB, symbolSize:40, itemStyle:{color:'#3b6eac'}, label:{show:true}});
 
-    let nodes = [];
-    let links = [];
-
-    if (valA) nodes.push({ name: valA, symbolSize: 50, itemStyle: { color: '#8C9C5E' }, label: {show:true, fontSize:16, fontWeight:'bold'} });
-    if (valB) nodes.push({ name: valB, symbolSize: 50, itemStyle: { color: '#3b6eac' }, label: {show:true, fontSize:16, fontWeight:'bold'} });
-
-    if (valA && valB) {
-        const dataA = await getIngredientData(valA);
-        const dataB = await getIngredientData(valB);
-
-        if (dataA && dataB) {
-            const listA = (dataA.pairings || []).map(p => p.name);
-            const listB = (dataB.pairings || []).map(p => p.name);
-            const common = listA.filter(n => listB.includes(n));
-            
-            if (common.length === 0) {
-                resultText.innerHTML = `找不到 <b>${valA}</b> 與 <b>${valB}</b> 的共同搭配。`;
-            } else {
-                resultText.innerHTML = `發現 ${common.length} 個共同連結！`;
-                common.forEach(cName => {
-                    nodes.push({ name: cName, symbolSize: 20, itemStyle: { color: '#eaddc5' }, label: { show: true, color: '#555' } });
-                    links.push({ source: valA, target: cName, lineStyle: { color: '#8C9C5E', opacity: 0.4 } });
-                    links.push({ source: valB, target: cName, lineStyle: { color: '#3b6eac', opacity: 0.4 } });
-                });
-            }
-        } else {
-            resultText.innerText = "其中一個食材不在資料庫中，無法分析。";
+    if(valA && valB) {
+        const dA = await getIngredientData(valA), dB = await getIngredientData(valB);
+        if(dA && dB) {
+            const common = (dA.pairings||[]).map(p=>p.name).filter(n => (dB.pairings||[]).map(x=>x.name).includes(n));
+            document.getElementById('bridgeResultText').innerHTML = common.length ? `發現 ${common.length} 個連結` : '無直接連結';
+            common.forEach(c => {
+                nodes.push({name:c, symbolSize:15, itemStyle:{color:'#eaddc5'}});
+                links.push({source:valA, target:c}, {source:valB, target:c});
+            });
         }
-    } else {
-        resultText.innerText = "請輸入兩個食材來查看連結。";
     }
-    renderChart(bridgeChart, nodes, links);
-}
-
-function renderChart(chartInstance, nodes, links) {
-    const isMobile = window.innerWidth < 768;
-    const sizeFactor = isMobile ? 0.6 : 1; 
-    const forceRepulsion = isMobile ? 150 : 300; 
-    const edgeLength = isMobile ? 40 : 80; 
-    const labelSize = isMobile ? 10 : 12; 
-
-    const adjustedNodes = nodes.map(node => ({
-        ...node,
-        symbolSize: (node.symbolSize || 20) * sizeFactor,
-        label: {
-            ...node.label,
-            fontSize: node.label?.fontSize ? Math.max(10, node.label.fontSize * sizeFactor) : labelSize
-        }
-    }));
-
-    const option = {
-        tooltip: {},
-        animationDurationUpdate: 1500,
-        animationEasingUpdate: 'quinticInOut',
-        series: [{
-            type: 'graph',
-            layout: 'force',
-            force: {
-                repulsion: forceRepulsion,
-                edgeLength: edgeLength,
-                gravity: 0.1
-            },
-            data: adjustedNodes,
-            links: links,
-            roam: true,
-            label: { show: true, position: 'right', fontSize: labelSize },
-            lineStyle: { curveness: 0.1 }
-        }]
-    };
-    chartInstance.setOption(option);
+    bridgeChart.setOption({ series: [{ type: 'graph', layout: 'force', force: { repulsion: 200 }, data: nodes, links: links, roam: true, label:{show:true} }] });
 }
 
 function renderLibrary() {
     const container = document.getElementById('libraryGrid');
-    const countLabel = document.getElementById('libraryCount');
-    if (!container) return;
+    if(!container) return;
     container.innerHTML = '';
-    const allKeys = Object.keys(flavorDB).sort((a, b) => a.localeCompare(b, 'zh-Hant'));
-    if (countLabel) countLabel.innerText = `(${allKeys.length})`;
-
-    if (allKeys.length === 0) {
-        container.innerHTML = '<div style="grid-column:1/-1; text-align:center; color:#999; padding:20px;">資料庫目前為空</div>';
-        return;
-    }
-    allKeys.forEach(key => {
-        const data = flavorDB[key];
-        const div = document.createElement('div');
-        div.className = 'suggestion-item'; 
-        div.innerHTML = `
-            <div class="suggestion-name">${key}</div>
-            ${data.enName ? `<div class="suggestion-en">${data.enName}</div>` : ''}
-        `;
-        div.onclick = () => showIngredient(key);
+    const keys = Object.keys(flavorDB).sort((a, b) => a.localeCompare(b, 'zh-Hant'));
+    document.getElementById('libraryCount').innerText = `(${keys.length})`;
+    keys.forEach(k => {
+        const div = document.createElement('div'); div.className = 'suggestion-item';
+        div.innerHTML = `<div class="suggestion-name">${k}</div>`;
+        div.onclick = () => showIngredient(k);
         container.appendChild(div);
     });
 }
 
-function goBack() {
-    if (navigationStack.length > 1) {
-        navigationStack.pop(); 
-        const prev = navigationStack[navigationStack.length - 1]; 
-        if (prev.page === 'home') resetApp();
-        else if (prev.page === 'ingredient') showIngredient(prev.data, false);
-        else if (prev.page === 'search_results') {
-            document.getElementById('searchInput').value = prev.data;
-            triggerSearch(prev.data);
-        }
-        else switchPage(prev.page, false);
-    } else {
-        resetApp();
-    }
-}
-
-function resetApp() {
-    navigationStack = [{ page: 'home', data: null }];
-    document.querySelectorAll('.page-section').forEach(el => el.classList.remove('active'));
-    document.getElementById('page-search').classList.add('active');
-    document.getElementById('searchInput').value = ''; 
-    document.getElementById('ingredientResult').style.display = 'none'; 
-    const sl = document.getElementById('suggestionList');
-    if(sl) sl.style.display = 'none'; 
-    const es = document.getElementById('emptyState');
-    if(es) {
-        es.style.display = 'block'; 
-        // 重置時確保空狀態文字是正常的
-        if (!es.innerHTML.includes('資料庫就緒')) {
-             es.innerHTML = '資料庫就緒，輸入關鍵字搜尋 (例如: A, 羊, 義...)';
-        }
-    }
-    const sb = document.getElementById('sidebar');
-    if(sb) sb.classList.remove('active');
-    const sbo = document.querySelector('.sidebar-overlay');
-    if(sbo) sbo.classList.remove('active');
-}
-
 function renderOnlineRecipes() {
-    const container = document.getElementById('recipeListContainer');
-    if(!container) return;
-    container.innerHTML = '';
-    if (onlineRecipes.length === 0) {
-        container.innerHTML = '<div style="text-align:center;color:#999;">目前沒有食譜。</div>';
-        return;
-    }
-    onlineRecipes.forEach(recipe => {
-        const card = document.createElement('div');
-        card.className = 'recipe-card';
-        card.style.cursor = 'pointer'; 
-        let ingStr = (recipe.ingredients || []).map(i => `<span>${i.name}</span>: ${i.qty}`).join(' | ');
-        if((!recipe.ingredients || recipe.ingredients.length === 0) && recipe.composition) {
-             ingStr = recipe.composition.map(i => `<span>${i.name}</span>: ${i.qty}`).join(' | ');
-        }
-        card.innerHTML = `<div class="recipe-name">${recipe.name}</div><div style="font-size:14px;color:#555;">${ingStr}</div>`;
-        card.onclick = () => showIngredient(recipe.name);
-        container.appendChild(card);
+    const c = document.getElementById('recipeListContainer');
+    if(!c) return; c.innerHTML = '';
+    if(!onlineRecipes.length) { c.innerHTML = '<div style="text-align:center;color:#999">無食譜</div>'; return; }
+    onlineRecipes.forEach(r => {
+        const d = document.createElement('div'); d.className = 'recipe-card'; d.style.cursor='pointer';
+        d.innerHTML = `<div class="recipe-name">${r.name}</div>`;
+        d.onclick = () => showIngredient(r.name);
+        c.appendChild(d);
     });
 }
 
-function renderCuisines() { 
-    const grid = document.getElementById('cuisineGrid'); 
-    if(!grid) return;
-    grid.innerHTML = ''; 
-    if (cuisineList.length === 0) {
-        grid.innerHTML = '<div style="text-align:center; color:#999;">尚未設定國家清單</div>';
-        return;
-    }
-    cuisineList.forEach(c => { 
-        const div = document.createElement('div'); 
-        div.className = 'cuisine-card'; 
-        let top = (c.pairings || []).sort((a,b)=>b.weight-a.weight).slice(0,4).map(p=>p.name).join('、');
-        div.innerHTML = `<div>${c.name}</div><div style="font-size:12px;color:#666;margin-top:5px;">${top}...</div>`;
-        div.onclick = () => showIngredient(c.name, true); 
-        grid.appendChild(div); 
-    }); 
+function renderCuisines() {
+    const g = document.getElementById('cuisineGrid'); if(!g)return; g.innerHTML='';
+    cuisineList.forEach(c => {
+        const d = document.createElement('div'); d.className='cuisine-card';
+        d.innerHTML = `<div>${c.name}</div>`;
+        d.onclick = () => showIngredient(c.name, true);
+        g.appendChild(d);
+    });
 }
 
-function toggleMenu() { 
-    document.getElementById('sidebar').classList.toggle('active'); 
-    document.querySelector('.sidebar-overlay').classList.toggle('active'); 
+function toggleMenu() { document.getElementById('sidebar').classList.toggle('active'); document.querySelector('.sidebar-overlay').classList.toggle('active'); }
+function switchPage(p) { 
+    document.getElementById('sidebar').classList.remove('active'); document.querySelector('.sidebar-overlay').classList.remove('active');
+    document.querySelectorAll('.page-section').forEach(e=>e.classList.remove('active'));
+    document.getElementById(`page-${p}`).classList.add('active');
+    navigationStack.push({page:p});
+    if(p==='library') renderLibrary();
+    if(p==='bridge') setTimeout(updateBridge, 100);
 }
-
-function switchPage(p, push = true) { 
-    document.getElementById('sidebar').classList.remove('active');
-    document.querySelector('.sidebar-overlay').classList.remove('active');
-    document.querySelectorAll('.page-section').forEach(el => el.classList.remove('active')); 
-    const target = document.getElementById(`page-${p}`);
-    if(target) target.classList.add('active'); 
-    if (push) navigationStack.push({page: p, data: null}); 
-    if(p === 'bridge') setTimeout(updateBridge, 100);
-    if(p === 'library') renderLibrary();
+function goBack() { 
+    if(navigationStack.length>1) { navigationStack.pop(); const p=navigationStack[navigationStack.length-1]; 
+    if(p.page==='home')resetApp(); else if(p.page==='ingredient')showIngredient(p.data,false); else switchPage(p.page); } 
+    else resetApp(); 
 }
-
-function handleEnter(e) { if(e.key === 'Enter') triggerSearch(); }
+function resetApp() { 
+    navigationStack=[{page:'home'}]; document.querySelectorAll('.page-section').forEach(e=>e.classList.remove('active')); 
+    document.getElementById('page-search').classList.add('active'); document.getElementById('ingredientResult').style.display='none';
+    document.getElementById('searchInput').value=''; document.getElementById('emptyState').style.display='block';
+    if(document.getElementById('emptyState').innerText.includes('逾時')) document.getElementById('emptyState').innerHTML='資料庫就緒';
+}
+function handleEnter(e){if(e.key==='Enter')triggerSearch();}
